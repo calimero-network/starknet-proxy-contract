@@ -1,5 +1,8 @@
 // use core::starknet::storage::{Map};
 // use starknet::Map;
+// use starknet::storage::{
+//     StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait, MutableVecTrait
+// };
 
 use starknet::ContractAddress;
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
@@ -20,7 +23,7 @@ pub struct ProposalWithApprovals {
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum MemberAction {
     Approve: (SignerId, ProposalId),
-    Create: (Proposal, u32),
+    Create: (ProposalWithArgs, u32),
 }
 
 #[derive(Clone, Debug)]
@@ -44,19 +47,35 @@ pub struct Approvals {
     pub approvals: Array<SignerId>,
 }
 
-/// Lowest level action that can be performed by the multisig contract.
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub enum ProposalAction {
-    // FunctionCall: (function_selector, function_call_args),
-    FunctionCall:(felt252, felt252),
+    ExternalFunctionCall:(ContractAddress, felt252, u128, u128),
+    Transfer: (ContractAddress, u128),
+    SetNumApprovals: u32,
+    SetActiveProposalsLimit: u32,
 }
 
-// The request the user makes specifying the receiving account and actions they want to execute (1 tx)
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub struct Proposal {
     pub receiver_id: ContractAddress,
     pub author_id: ContextIdentity,
     pub actions: ProposalAction,
+}
+
+// Runtime version used for contract calls
+#[derive(Drop, Clone, Serde, PartialEq, Debug)]
+pub enum ProposalActionWithArgs {
+    ExternalFunctionCall: (ContractAddress, felt252, Array<felt252>, u128, u128),
+    Transfer: (ContractAddress, u128),
+    SetNumApprovals: u32,
+    SetActiveProposalsLimit: u32,
+}
+
+#[derive(Drop, Clone, Serde, PartialEq, Debug)]
+pub struct ProposalWithArgs {
+    pub receiver_id: ContractAddress,
+    pub author_id: ContextIdentity,
+    pub actions: ProposalActionWithArgs,
 }
 
 #[derive(Drop, Serde, Debug)]

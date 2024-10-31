@@ -24,7 +24,9 @@ mod ProxyContract {
     use starknet::ContractAddress;
     use starknet::storage::{
         Map,
-        // Vec
+        Vec,
+        VecTrait,
+        MutableVecTrait
     };
     use core::starknet::{syscalls, SyscallResultTrait};
     use starknet::storage::{
@@ -47,8 +49,13 @@ mod ProxyContract {
         ContextId,
         ProposalId,
         SignerId,
+        ProposalWithArgs,
+        ProposalActionWithArgs,
+        // ProposalStorage,
         Proposal,
         ProposalAction,
+        // ProposalActionStorage,
+        // ProposalActionRequest,
         Signed,
         ContextIdentity,
         MemberAction,
@@ -84,6 +91,7 @@ mod ProxyContract {
     #[storage]
     struct Storage {
         proxy_contract: ProxyContract,
+        proposal_action_arguments: Map::<ProposalId, Vec<felt252>>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage
     }
@@ -107,7 +115,7 @@ mod ProxyContract {
         fn create_and_approve_proposal(ref self: ContractState, signed_proposal: Signed) -> ProposalWithApprovals {
             // Verify the signature corresponds to the signer_id
             let mut serialized = signed_proposal.payload.span();
-            let proposal: Proposal = Serde::deserialize(ref serialized).unwrap();
+            let proposal: ProposalWithArgs = Serde::deserialize(ref serialized).unwrap();
 
             assert(self.verify_signature(signed_proposal, proposal.author_id), 'Invalid signature');
     
@@ -140,18 +148,12 @@ mod ProxyContract {
             let approvals_count = current_proposal_approvals.approvals_count.read();
             if approvals_count >= self.proxy_contract.num_approvals.read() {
                 let request = self.remove_request(proposal_id);
-                self.execute_proposal(request);
+                self.execute_proposal(request, proposal_id);
             } else {
                 current_proposal_approvals.approvals.entry(signer_id).write(true);
                 current_proposal_approvals.approvals_count.write(approvals_count + 1);
             }
         }
-
-        // fn call_proxy_contract(self: @ContractState, contract_address: ContractAddress, context_id: ContextId) -> Option<Application> {
-        //     let context_config_dispatcher = IContextConfigDispatcher { contract_address: contract_address };
-        //     context_config_dispatcher.application(context_id)
-        // }
-    
     }
 
 
@@ -203,23 +205,44 @@ mod ProxyContract {
             let mut new_proposal = self.proxy_contract.proposals.entry(proposal_id);
             new_proposal.receiver_id.write(core::num::traits::Zero::<ContractAddress>::zero());
             new_proposal.author_id.write(0);
-            // new_proposal.actions.write(ProposalAction::FunctionCall(("", core::array::Array::<core::felt252>::array_ne())));
             self.proxy_contract.num_proposals_pk.entry(proposal_author).write(num_requests);
             proposal
         }
 
-        fn internal_create_proposal(ref self: ContractState, proposal: Proposal, num_proposals: u32,) -> ProposalWithApprovals {
+        fn internal_create_proposal(ref self: ContractState, proposal_with_args: ProposalWithArgs, num_proposals: u32,) -> ProposalWithApprovals {
             // assert_membership(call_result);
 
-            self.proxy_contract.num_proposals_pk.entry(proposal.author_id).write(num_proposals);
-            
+            self.proxy_contract.num_proposals_pk.entry(proposal_with_args.author_id).write(num_proposals);
             let proposal_id = self.proxy_contract.proposal_nonce.read();
             let mut new_proposal = self.proxy_contract.proposals.entry(proposal_id);
-            new_proposal.receiver_id.write(proposal.receiver_id);
-            new_proposal.author_id.write(proposal.author_id);
-            new_proposal.actions.write(proposal.actions);
+            new_proposal.receiver_id.write(proposal_with_args.receiver_id);
+            new_proposal.author_id.write(proposal_with_args.author_id);
+
+            // Extract the arguments based on the action type
+            let (storage_action, args) = match proposal_with_args.actions {
+                ProposalActionWithArgs::ExternalFunctionCall((addr, selector, args, v1, v2)) => {
+                    (ProposalAction::ExternalFunctionCall((addr, selector, v1, v2)), args)
+                },
+                ProposalActionWithArgs::Transfer(t) => (ProposalAction::Transfer(t), ArrayTrait::new()),
+                ProposalActionWithArgs::SetNumApprovals(v) => (ProposalAction::SetNumApprovals(v), ArrayTrait::new()),
+                ProposalActionWithArgs::SetActiveProposalsLimit(v) => (ProposalAction::SetActiveProposalsLimit(v), ArrayTrait::new()),
+            };
+
+            new_proposal.actions.write(storage_action);
+
+            if !args.is_empty() { 
+                let mut args_vec = self.proposal_action_arguments.entry(proposal_id);
+                let mut i: usize = 0;
+                loop {
+                    if i >= args.len() {
+                        break;
+                    }
+                    args_vec.append().write(*args.at(i));
+                    i += 1;
+                }
+            }
             
-            self.internal_confirm(proposal_id, proposal.author_id);
+            self.internal_confirm(proposal_id, proposal_with_args.author_id);
 
             self.proxy_contract.proposal_nonce.write(proposal_id + 1);
 
@@ -239,17 +262,32 @@ mod ProxyContract {
             }
         }
 
-        fn execute_proposal(ref self: ContractState, proposal: Proposal) {
+        fn execute_proposal(ref self: ContractState, proposal: Proposal, proposal_id: ProposalId) {
             match proposal.actions {
-                ProposalAction::FunctionCall((method_name, call_data)) => {
-                    let recipient = proposal.receiver_id;
+                ProposalAction::ExternalFunctionCall((contract_address, method_name, deposit, gas)) => {
+                    let mut args = array![];
+                    let call_args = self.proposal_action_arguments.entry(proposal_id);
+                    let call_args_len = call_args.len();
+                    for i in 0..call_args_len {
+                        args.append(call_args.at(i).read());
+                    };
+                    
                     let mut _res = syscalls::call_contract_syscall(
-                        recipient, method_name, [call_data].span()
+                        contract_address, method_name, args.span()
                     )
                     .unwrap_syscall();
         
                     // Serde::<bool>::deserialize(ref res).unwrap()
-                }
+                },
+                ProposalAction::Transfer((contract_address, amount)) => {
+                    // syscalls::transfer_syscall(contract_address, amount).unwrap_syscall();
+                },
+                ProposalAction::SetNumApprovals(v) => {
+                    self.proxy_contract.num_approvals.write(v);
+                },
+                ProposalAction::SetActiveProposalsLimit(v) => {
+                    self.proxy_contract.active_proposals_limit.write(v);
+                },
             }
         }
     

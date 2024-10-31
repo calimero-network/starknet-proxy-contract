@@ -18,3 +18,8 @@ sierra = true
 
 [scripts]
 test = "snforge test"
+
+[[tool.snforge.fork]]
+name = "devnet"
+url = "http://localhost:5050/rpc"
+block_id.tag = "latest"
