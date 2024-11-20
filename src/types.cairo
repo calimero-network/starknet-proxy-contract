@@ -59,6 +59,7 @@ pub enum ProposalAction {
     Transfer: (ContractAddress, u256, ContractAddress),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
+    SetContextValue: felt252,
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
@@ -71,10 +72,11 @@ pub struct Proposal {
 // Runtime version used for contract calls
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum ProposalActionWithArgs {
-    ExternalFunctionCall: (ContractAddress, felt252, Array<felt252>),
+    ExternalFunctionCall:(ContractAddress, felt252, Array<felt252>),
     Transfer: (ContractAddress, u256, ContractAddress),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
+    SetContextValue: (Array<felt252>, Array<felt252>),
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
@@ -98,5 +100,10 @@ pub struct ExternalCallSuccess {
 
 #[derive(Drop, starknet::Event)]
 pub struct TransferSuccess {
+    pub message: ByteArray,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct SetContextValueSuccess {
     pub message: ByteArray,
 }

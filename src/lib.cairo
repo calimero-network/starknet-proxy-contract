@@ -29,17 +29,16 @@ pub use interface::{
 pub mod ProxyContract {
     use starknet::ContractAddress;
     use starknet::ClassHash;
-    use starknet::storage::{
-        Map,
-        Vec,
-        MutableVecTrait
-    };
     use core::starknet::syscalls;
     use starknet::storage::{
         StoragePathEntry,
         StoragePointerReadAccess,
         StoragePointerWriteAccess,
         StorageMapReadAccess,
+        VecTrait,
+        Map,
+        Vec,
+        MutableVecTrait
     };
 
     use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
@@ -64,6 +63,7 @@ pub mod ProxyContract {
         ProposalWithApprovals,
         ExternalCallSuccess,
         TransferSuccess,
+        SetContextValueSuccess,
     };
 
     use starknet::syscalls::replace_class_syscall;
@@ -76,6 +76,13 @@ pub mod ProxyContract {
     }
 
     #[starknet::storage_node]
+    pub struct ContextStorage {
+        pub values: Map::<felt252, Vec<felt252>>,  // hash -> value array
+        pub keys: Map::<felt252, Vec<felt252>>,    // hash -> original key array
+        pub indexes: Vec<felt252>,                 // list of hashes for iteration
+    }
+
+    #[starknet::storage_node]
     struct ProxyContract {
         context_id: ContextId,
         context_config_account_id: ContractAddress,
@@ -85,6 +92,7 @@ pub mod ProxyContract {
         active_proposals_limit: u32,
         approvals: Map::<ProposalId, Approvals>,
         proposals: Map::<ProposalId, Proposal>,
+        context_storage: ContextStorage,
     }
 
     #[event]
@@ -92,6 +100,7 @@ pub mod ProxyContract {
     pub enum Event {
         ExternalCallSuccess: ExternalCallSuccess,
         TransferSuccess: TransferSuccess,
+        SetContextValueSuccess: SetContextValueSuccess,
         #[flat]
         OwnableEvent: OwnableComponent::Event
     }
@@ -207,6 +216,99 @@ pub mod ProxyContract {
             // Perform the upgrade
             replace_class_syscall(class_hash).unwrap();
         }
+
+        fn get_context_value(
+            self: @ContractState, 
+            key: Array<felt252>
+        ) -> Option<Array<felt252>> {
+            // Create storage key from the input key array
+            let storage_key = poseidon_hash_span(key.span());
+            
+            // Get the value array from storage
+            let value_vec = self.proxy_contract.context_storage.values.entry(storage_key);
+            
+            // Check if value exists (length > 0)
+            if value_vec.len() == 0 {
+                return Option::None;
+            }
+            
+            // Convert storage Vec to regular Array
+            let mut value_array = ArrayTrait::new();
+            let mut i: u64 = 0;
+            loop {
+                if i >= value_vec.len().into() {
+                    break;
+                }
+                value_array.append(value_vec.at(i.try_into().unwrap()).read());
+                i += 1;
+            };
+            
+            Option::Some(value_array)
+        }
+
+        fn context_storage_entries(
+            self: @ContractState,
+            offset: u32,
+            length: u32
+        ) -> Array<(Array<felt252>, Array<felt252>)> {
+            let mut entries = ArrayTrait::new();
+    
+            // Convert len to u32 right away
+            let indexes_len: u32 = self.proxy_contract.context_storage.indexes.len().try_into().unwrap();
+            
+            // Now all types are u32
+            let start = offset;
+            let end = if offset + length > indexes_len {
+                indexes_len
+            } else {
+                offset + length
+            };
+            
+            // Iterate through the range
+            let mut i = start;
+            loop {
+                if i >= end {
+                    break;
+                }
+                
+                // Get storage key from indexes
+                let storage_key = self.proxy_contract.context_storage.indexes.at(i.try_into().unwrap()).read();
+                
+                // Get key and value arrays for this storage key
+                let key_vec = self.proxy_contract.context_storage.keys.entry(storage_key);
+                let value_vec = self.proxy_contract.context_storage.values.entry(storage_key);
+                
+                // Create arrays to hold the data
+                let mut key_array = ArrayTrait::new();
+                let mut value_array = ArrayTrait::new();
+                
+                // Read key data
+                let mut j: u64 = 0;
+                loop {
+                    if j >= key_vec.len().into() {
+                        break;
+                    }
+                    key_array.append(key_vec.at(j.try_into().unwrap()).read());
+                    j += 1;
+                };
+                
+                // Read value data
+                let mut j: u64 = 0;
+                loop {
+                    if j >= value_vec.len().into() {
+                        break;
+                    }
+                    value_array.append(value_vec.at(j.try_into().unwrap()).read());
+                    j += 1;
+                };
+                
+                // Add the pair to entries
+                entries.append((key_array, value_array));
+                i += 1;
+            };
+            
+            entries
+        }
     }
 
 
@@ -289,12 +391,47 @@ pub mod ProxyContract {
                 ProposalActionWithArgs::ExternalFunctionCall((addr, selector, args)) => {
                     (ProposalAction::ExternalFunctionCall((addr, selector)), args)
                 },
-                ProposalActionWithArgs::Transfer((recipient, amount, token_address)) => (ProposalAction::Transfer((recipient, amount, token_address)), ArrayTrait::new()),
-                ProposalActionWithArgs::SetNumApprovals(v) => (ProposalAction::SetNumApprovals(v), ArrayTrait::new()),
-                ProposalActionWithArgs::SetActiveProposalsLimit(v) => (ProposalAction::SetActiveProposalsLimit(v), ArrayTrait::new()),
+                ProposalActionWithArgs::Transfer((recipient, amount, token_address)) => 
+                    (ProposalAction::Transfer((recipient, amount, token_address)), ArrayTrait::new()),
+                ProposalActionWithArgs::SetNumApprovals(v) => 
+                    (ProposalAction::SetNumApprovals(v), ArrayTrait::new()),
+                ProposalActionWithArgs::SetActiveProposalsLimit(v) => 
+                    (ProposalAction::SetActiveProposalsLimit(v), ArrayTrait::new()),
+                ProposalActionWithArgs::SetContextValue((key, value)) => {
+                    let storage_key = poseidon_hash_span(key.span());
+                    
+                    // Create args array with lengths and data
+                    let mut full_args = ArrayTrait::new();
+                    // Add lengths first
+                    full_args.append(key.len().into());
+                    full_args.append(value.len().into());
+                    
+                    // Add key data
+                    let mut i = 0;
+                    loop {
+                        if i >= key.len() {
+                            break;
+                        }
+                        full_args.append(*key.at(i));
+                        i += 1;
+                    };
+                    
+                    // Add value data
+                    let mut i = 0;
+                    loop {
+                        if i >= value.len() {
+                            break;
+                        }
+                        full_args.append(*value.at(i));
+                        i += 1;
+                    };
+                    
+                    (ProposalAction::SetContextValue(storage_key), full_args)
+                }
             };
             new_proposal.actions.write(storage_action);
 
+            // Store args if any exist (this part handles both external calls and context storage)
             if !args.is_empty() { 
                 let mut args_vec = self.proposal_action_arguments.entry(proposal_id);
                 let mut i: usize = 0;
@@ -376,6 +513,79 @@ pub mod ProxyContract {
                 },
                 ProposalAction::SetActiveProposalsLimit(v) => {
                     self.proxy_contract.active_proposals_limit.write(v);
+                },
+                ProposalAction::SetContextValue(storage_key) => {
+                    // Get the arguments from storage
+                    let args = self.proposal_action_arguments.entry(proposal_id);
+
+                    // Read lengths and convert to u64
+                    let key_len: u64 = args.at(0).read().try_into().unwrap();
+                    let value_len: u64 = args.at(1).read().try_into().unwrap();
+                    
+                    // Create arrays for key and value
+                    let mut keys = ArrayTrait::<felt252>::new();
+                    let mut values = ArrayTrait::<felt252>::new();
+                    
+                    let mut i: u64 = 2;
+                    loop {
+                        if i >= key_len + 2 {
+                            break;
+                        }
+                        keys.append(args.at(i).read());
+                        i += 1;
+                    };
+
+                    loop {
+                        if i >= key_len + value_len + 2 {
+                            break;
+                        }
+                        values.append(args.at(i).read());
+                        i += 1;
+                    };
+
+                    // Check if key exists
+                    let existing_key = self.proxy_contract.context_storage.keys.entry(storage_key);
+                    
+                    if existing_key.len() == 0 {
+                        // New key - store and track it
+                        let mut key_vec = self.proxy_contract.context_storage.keys.entry(storage_key);
+                        let mut value_vec = self.proxy_contract.context_storage.values.entry(storage_key);
+
+
+                        let mut i: u64 = 0;
+                        loop {
+                            if i >= key_len {
+                                break;
+                            }
+                            key_vec.append().write(*keys.at(i.try_into().unwrap()));
+                            i += 1;
+                        };
+                        i = 0;
+                        loop {
+                            if i >= value_len {
+                                break;
+                            }
+                            value_vec.append().write(*values.at(i.try_into().unwrap()));
+                            i += 1;
+                        };
+                        
+                        self.proxy_contract.context_storage.indexes.append().write(storage_key);
+                    } else {
+                        // Update existing value only
+                        let mut value_vec = self.proxy_contract.context_storage.values.entry(storage_key);
+                        let mut i: u64 = 0;
+                        loop {
+                            if i >= value_len {
+                                break;
+                            }
+                            let mut storage_ptr = value_vec.at(i.try_into().unwrap());
+                            storage_ptr.write(*values.at(i.try_into().unwrap()));
+                            i += 1;
+                        };
+                    }
+                    self.emit(Event::SetContextValueSuccess(SetContextValueSuccess {
+                        message: "Set context value successful"
+                    }));
                 },
             }
         }
