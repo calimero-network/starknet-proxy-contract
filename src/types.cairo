@@ -7,12 +7,18 @@
 use starknet::ContractAddress;
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub type ProposalId = u32;
+// #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
+// pub type SignerId = felt252;
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
-pub type SignerId = felt252;
+pub struct ContextId {
+    pub high: felt252,  // First 16 bytes (128 bits)
+    pub low: felt252,   // Second 16 bytes (128 bits)
+}
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
-pub type ContextId = felt252;
-#[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
-pub type ContextIdentity = felt252;
+pub struct ContextIdentity {
+    pub high: felt252,  // First 16 bytes
+    pub low: felt252,   // Second 16 bytes
+}
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub struct ProposalWithApprovals {
@@ -22,7 +28,7 @@ pub struct ProposalWithApprovals {
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum MemberAction {
-    Approve: (SignerId, ProposalId),
+    Approve: (ContextIdentity, ProposalId),
     Create: (ProposalWithArgs, u32),
 }
 
@@ -38,26 +44,26 @@ pub struct FunctionCallPermission {
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub struct ConfirmationRequestWithSigner {
     pub proposal_id: ProposalId,
-    pub signer_id: SignerId,
+    pub signer_id: ContextIdentity,
     pub added_timestamp: u64,
 }
 
 #[derive(Drop, Clone, Serde)]
 pub struct Approvals {
-    pub approvals: Array<SignerId>,
+    pub approvals: Array<ContextIdentity>,
 }
-
+// Storage version
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub enum ProposalAction {
-    ExternalFunctionCall:(ContractAddress, felt252, u128, u128),
-    Transfer: (ContractAddress, u128),
+    ExternalFunctionCall:(ContractAddress, felt252),
+    Transfer: (ContractAddress, u256, ContractAddress),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub struct Proposal {
-    pub receiver_id: ContractAddress,
+    pub proposal_id: ProposalId,
     pub author_id: ContextIdentity,
     pub actions: ProposalAction,
 }
@@ -65,15 +71,15 @@ pub struct Proposal {
 // Runtime version used for contract calls
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum ProposalActionWithArgs {
-    ExternalFunctionCall: (ContractAddress, felt252, Array<felt252>, u128, u128),
-    Transfer: (ContractAddress, u128),
+    ExternalFunctionCall: (ContractAddress, felt252, Array<felt252>),
+    Transfer: (ContractAddress, u256, ContractAddress),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub struct ProposalWithArgs {
-    pub receiver_id: ContractAddress,
+    pub proposal_id: ProposalId,
     pub author_id: ContextIdentity,
     pub actions: ProposalActionWithArgs,
 }
@@ -83,4 +89,14 @@ pub struct Signed {
     pub payload: Array<felt252>,
     pub signature_r: felt252,
     pub signature_s: felt252,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct ExternalCallSuccess {
+    pub message: ByteArray,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct TransferSuccess {
+    pub message: ByteArray,
 }

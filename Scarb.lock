@@ -2,6 +2,13 @@
 version = 1
 
 [[package]]
+name = "context_config"
+version = "0.1.0"
+dependencies = [
+ "openzeppelin",
+]
+
+[[package]]
 name = "openzeppelin"
 version = "0.18.0"
 source = "registry+https://scarbs.xyz/"
@@ -122,6 +129,7 @@ checksum = "sha256:725b212839f3eddc32791408609099c5e808c167ca0cf331d8c1d778b07a4
 name = "proxy_contract"
 version = "0.1.0"
 dependencies = [
+ "context_config",
  "openzeppelin",
  "snforge_std",
 ]
