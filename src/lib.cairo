@@ -68,6 +68,13 @@ pub mod ProxyContract {
 
     use starknet::syscalls::replace_class_syscall;
 
+    // First, add new types for mutation requests
+    #[derive(Drop, Serde)]
+    pub enum ProxyMutateRequest {
+        Propose: ProposalWithArgs,
+        Approve: ConfirmationRequestWithSigner,
+    }
+
     #[starknet::storage_node]
     pub struct Approvals {
         approvals: Map<felt252, (ContextIdentity, bool)>,
@@ -129,52 +136,45 @@ pub mod ProxyContract {
 
     #[abi(embed_v0)]
     impl ProxyContractImpl of super::interface::IProxyContract<ContractState> {
-        fn create_and_approve_proposal(ref self: ContractState, signed_proposal: Signed) -> ProposalWithApprovals {
-            // Verify the signature corresponds to the signer_id
-            let mut serialized = signed_proposal.payload.span();
-            let proposal: ProposalWithArgs = Serde::deserialize(ref serialized).unwrap();
-
-            assert(self.verify_signature(signed_proposal, proposal.author_id.clone()), 'Invalid signature');
-    
-            let author_id = self.create_identity_key(@proposal.author_id);
-            let num_proposals = self.proxy_contract.num_proposals_pk.read(author_id);
-            assert!(
-                num_proposals <= self.proxy_contract.active_proposals_limit.read(),
-                "Account has too many active proposals. Confirm or delete some."
-            );
-            return self.perform_action_by_member(MemberAction::Create((proposal, num_proposals)));
-        }
-
-        fn approve(ref self: ContractState, request: Signed) -> ProposalWithApprovals {
+        fn mutate(ref self: ContractState, request: Signed) -> ProposalWithApprovals {
             let mut serialized = request.payload.span();
-            let confirmation_request: ConfirmationRequestWithSigner = Serde::deserialize(ref serialized).unwrap();
-
-            assert(self.verify_signature(request, confirmation_request.signer_id.clone()), 'Invalid signature');
-
-            return self.perform_action_by_member(MemberAction::Approve((confirmation_request.signer_id, confirmation_request.proposal_id)));
+            let mutate_request: ProxyMutateRequest = Serde::deserialize(ref serialized).unwrap();
+            
+            match mutate_request {
+                ProxyMutateRequest::Propose(proposal) => {
+                    // Verify signature matches the proposal author
+                    assert(self.verify_signature(request, proposal.author_id.clone()), 'Invalid signature');
+                    
+                    let author_id = self.create_identity_key(@proposal.author_id);
+                    let num_proposals = self.proxy_contract.num_proposals_pk.read(author_id);
+                    assert!(
+                        num_proposals <= self.proxy_contract.active_proposals_limit.read(),
+                        "Account has too many active proposals"
+                    );
+                    
+                    self.perform_action_by_member(MemberAction::Create((proposal, num_proposals)))
+                },
+                ProxyMutateRequest::Approve(confirmation_request) => {
+                    // Verify signature matches the signer
+                    assert(
+                        self.verify_signature(request, confirmation_request.signer_id.clone()),
+                        'Invalid signature'
+                    );
+                    
+                    self.perform_action_by_member(
+                        MemberAction::Approve((confirmation_request.signer_id, confirmation_request.proposal_id))
+                    )
+                }
+            }
         }
 
-        fn internal_confirm(ref self: ContractState, proposal_id: ProposalId, signer_id: ContextIdentity) {
-            let mut current_proposal_approvals = self.proxy_contract.approvals.entry(proposal_id);
-            let signer_id_key = self.create_identity_key(@signer_id);
-            
-            // Read the full tuple (identity, approval status)
-            let approval_entry = current_proposal_approvals.approvals.entry(signer_id_key).read();
-            if approval_entry == (signer_id.clone(), true) {
-                assert!(false, "Already confirmed this request with this key");
-            }
-            
-            // Store both the identity and the approval status
-            current_proposal_approvals.approvals.entry(signer_id_key).write((signer_id, true));
-            // Add the key to our list
-            current_proposal_approvals.approval_keys.append().write(signer_id_key);
-            
-            let new_approvals_count = current_proposal_approvals.approvals_count.read() + 1;
-            current_proposal_approvals.approvals_count.write(new_approvals_count);
-
-            if new_approvals_count >= self.proxy_contract.num_approvals.read() {
-                let request = self.remove_request(proposal_id);
-                self.execute_proposal(request, proposal_id);
+        fn get_confirmations_count(self: @ContractState, proposal_id: ProposalId) -> ProposalWithApprovals {
+            let current_proposal = self.proxy_contract.approvals.entry(proposal_id);
+            let size = current_proposal.approvals_count.read();
+    
+            ProposalWithApprovals {
+                proposal_id,
+                num_approvals: size,
             }
         }
 
@@ -333,6 +333,31 @@ pub mod ProxyContract {
 
     #[generate_trait]
     impl ProxyActions of ProxyActionsTrait {
+
+        fn internal_confirm(ref self: ContractState, proposal_id: ProposalId, signer_id: ContextIdentity) {
+            let mut current_proposal_approvals = self.proxy_contract.approvals.entry(proposal_id);
+            let signer_id_key = self.create_identity_key(@signer_id);
+            
+            // Read the full tuple (identity, approval status)
+            let approval_entry = current_proposal_approvals.approvals.entry(signer_id_key).read();
+            if approval_entry == (signer_id.clone(), true) {
+                assert!(false, "Already confirmed this request with this key");
+            }
+            
+            // Store both the identity and the approval status
+            current_proposal_approvals.approvals.entry(signer_id_key).write((signer_id, true));
+            // Add the key to our list
+            current_proposal_approvals.approval_keys.append().write(signer_id_key);
+            
+            let new_approvals_count = current_proposal_approvals.approvals_count.read() + 1;
+            current_proposal_approvals.approvals_count.write(new_approvals_count);
+
+            if new_approvals_count >= self.proxy_contract.num_approvals.read() {
+                let request = self.remove_request(proposal_id);
+                self.execute_proposal(request, proposal_id);
+            }
+        }
+
         fn perform_action_by_member(ref self: ContractState, action: MemberAction) -> ProposalWithApprovals {
             let identity = match action.clone() {
                 MemberAction::Approve((identity, _)) => identity,
@@ -452,16 +477,6 @@ pub mod ProxyContract {
                 proposal_id,
                 num_approvals: self.get_confirmations_count(proposal_id).num_approvals,
             };
-        }
-
-        fn get_confirmations_count(ref self: ContractState, proposal_id: ProposalId) -> ProposalWithApprovals {
-            let current_proposal = self.proxy_contract.approvals.entry(proposal_id);
-            let size = current_proposal.approvals_count.read();
-    
-            ProposalWithApprovals {
-                proposal_id,
-                num_approvals: size,
-            }
         }
 
         fn execute_proposal(ref self: ContractState, proposal: Proposal, proposal_id: ProposalId) {
