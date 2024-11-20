@@ -76,201 +76,196 @@ mod tests {
         (high, low)
     }
 
-    // #[test]
-    // #[feature("safe_dispatcher")]
-    // #[fork("devnet")]
-    // fn test_create_and_approve_proposal() {
+    #[test]
+    #[feature("safe_dispatcher")]
+    #[fork("devnet")]
+    fn test_create_and_approve_proposal() {
 
-    //     let context_contract_felt: felt252 = 0x7cdd9d6ec666ad0954705f25f86e8adf064ae789ef34f042cba7e52e40536bb.into();
-    //     let context_contract_address: ContractAddress = context_contract_felt.try_into().unwrap();
-    //     let context_config_dispatcher = IContextConfigsSafeDispatcher { contract_address: context_contract_address };
-    //     // 9. account in devnet
-    //     let context_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x00000000000000000000000000000000a74129f264649123f5ca7be26d2795ae.into());
-    //     let context_public_key = context_key_pair.public_key;
-    //     let (context_high, context_low) = split_felt252(context_public_key);
-    //     let context_id = context_types::ContextId { high: context_high, low: context_low };
+        let context_contract_felt: felt252 = 0x7cdd9d6ec666ad0954705f25f86e8adf064ae789ef34f042cba7e52e40536bb.into();
+        let context_contract_address: ContractAddress = context_contract_felt.try_into().unwrap();
+        let context_config_dispatcher = IContextConfigsSafeDispatcher { contract_address: context_contract_address };
+        // 9. account in devnet
+        let context_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x00000000000000000000000000000000a74129f264649123f5ca7be26d2795ae.into());
+        let context_public_key = context_key_pair.public_key;
+        let (context_high, context_low) = split_felt252(context_public_key);
+        let context_id = context_types::ContextId { high: context_high, low: context_low };
 
-    //     println!("context_id: {:?}", context_id);
-    //     println!("context high: {:?}", context_high);
-    //     println!("context low: {:?}", context_low);
+        let node1 = KeyPairTrait::<felt252, felt252>::generate();
+        let node1_public_key = node1.public_key;
+        let node1_id: ContractAddress = node1_public_key.try_into().unwrap();
 
-    //     let node1 = KeyPairTrait::<felt252, felt252>::generate();
-    //     let node1_public_key = node1.public_key;
-    //     let node1_id: ContractAddress = node1_public_key.try_into().unwrap();
+        let proxy_contract_address = deploy_contract("ProxyContract", node1_id, context_id, context_contract_address);
 
-    //     let proxy_contract_address = deploy_contract("ProxyContract", node1_id, context_id, context_contract_address);
-    //     println!("proxy_contract_address: {:?}", proxy_contract_address);
+        let safe_dispatcher = IProxyContractSafeDispatcher { contract_address: proxy_contract_address };
+        let spy_dispatcher = IProxyContractDispatcher { contract_address: proxy_contract_address };
+        let mut spy = spy_events();
 
-    //     let safe_dispatcher = IProxyContractSafeDispatcher { contract_address: proxy_contract_address };
-    //     let spy_dispatcher = IProxyContractDispatcher { contract_address: proxy_contract_address };
-    //     let mut spy = spy_events();
+        // 10. account in devnet
+        let alice_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x0000000000000000000000000000000066051155b69b9b99cc8083c61653d3cd.into());
+        let alice_public_key = alice_key_pair.public_key;
+        let (alice_high, alice_low) = split_felt252(alice_public_key);
+        let alice_proxy_id = proxy_types::ContextIdentity { high: alice_high, low: alice_low };
+        let alice_context_id = context_types::ContextIdentity { high: alice_high, low: alice_low };
 
-    //     // 10. account in devnet
-    //     let alice_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x0000000000000000000000000000000066051155b69b9b99cc8083c61653d3cd.into());
-    //     let alice_public_key = alice_key_pair.public_key;
-    //     let (alice_high, alice_low) = split_felt252(alice_public_key);
-    //     let alice_proxy_id = proxy_types::ContextIdentity { high: alice_high, low: alice_low };
-    //     let alice_context_id = context_types::ContextIdentity { high: alice_high, low: alice_low };
+        // 7. account in devnet
+        let bob_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x000000000000000000000000000000006b1ce2796be2f76852f7615ebdd854f7.into());
+        let bob_public_key = bob_key_pair.public_key;
+        let (bob_high, bob_low) = split_felt252(bob_public_key);
+        let bob_proxy_id = proxy_types::ContextIdentity { high: bob_high, low: bob_low };
+        let bob_context_id = context_types::ContextIdentity { high: bob_high, low: bob_low };
 
-    //     // 7. account in devnet
-    //     let bob_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x000000000000000000000000000000006b1ce2796be2f76852f7615ebdd854f7.into());
-    //     let bob_public_key = bob_key_pair.public_key;
-    //     let (bob_high, bob_low) = split_felt252(bob_public_key);
-    //     let bob_proxy_id = proxy_types::ContextIdentity { high: bob_high, low: bob_low };
-    //     let bob_context_id = context_types::ContextIdentity { high: bob_high, low: bob_low };
+        // 8. account in devnet
+        let carol_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x00000000000000000000000000000000d73986550f0ea6c783d53f12897d5d7d.into());
+        let carol_public_key = carol_key_pair.public_key;
+        let (carol_high, carol_low) = split_felt252(carol_public_key);
+        let carol_proxy_id = proxy_types::ContextIdentity { high: carol_high, low: carol_low };
+        let carol_context_id = context_types::ContextIdentity { high: carol_high, low: carol_low };
 
-    //     // 8. account in devnet
-    //     let carol_key_pair = KeyPairTrait::<felt252, felt252>::from_secret_key(0x00000000000000000000000000000000d73986550f0ea6c783d53f12897d5d7d.into());
-    //     let carol_public_key = carol_key_pair.public_key;
-    //     let (carol_high, carol_low) = split_felt252(carol_public_key);
-    //     let carol_proxy_id = proxy_types::ContextIdentity { high: carol_high, low: carol_low };
-    //     let carol_context_id = context_types::ContextIdentity { high: carol_high, low: carol_low };
+        // Create context with Alice first
+        create_context_and_proxy(
+            context_config_dispatcher,
+            context_contract_address,
+            context_id,
+            alice_context_id,
+            alice_key_pair,
+            0_u64,
+            proxy_contract_address
+        );
 
-    //     // Create context with Alice first
-    //     create_context_and_proxy(
-    //         context_config_dispatcher,
-    //         context_contract_address,
-    //         context_id,
-    //         alice_context_id,
-    //         alice_key_pair,
-    //         0_u64,
-    //         proxy_contract_address
-    //     );
+        // Add Bob to context
+        add_members_to_context(
+            context_config_dispatcher,
+            context_id,
+            alice_context_id, // Alice is adding Bob
+            alice_key_pair,
+            1_u64, // increment nonce
+            array![bob_context_id.clone(), carol_context_id.clone()]
+        );
 
-    //     // Add Bob to context
-    //     add_members_to_context(
-    //         context_config_dispatcher,
-    //         context_id,
-    //         alice_context_id, // Alice is adding Bob
-    //         alice_key_pair,
-    //         1_u64, // increment nonce
-    //         array![bob_context_id.clone(), carol_context_id.clone()]
-    //     );
-
-    //     // STRK token transfer contract 
-    //     let strk_address: ContractAddress = 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap();
-    //     let strk = IERC20Dispatcher { contract_address: strk_address };
+        // STRK token transfer contract 
+        let strk_address: ContractAddress = 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap();
+        let strk = IERC20Dispatcher { contract_address: strk_address };
         
-    //     let fund_address: ContractAddress = 0x2b40efa796351f7b2264301b6c73e117c6af033b41f6acf1db2b61d73d743bb.try_into().unwrap();
-    //     println!("Fund address: {:?}", fund_address);
+        let fund_address: ContractAddress = 0x2b40efa796351f7b2264301b6c73e117c6af033b41f6acf1db2b61d73d743bb.try_into().unwrap();
+        println!("Fund address: {:?}", fund_address);
 
-    //     // Get and print all relevant addresses
-    //     let proxy_balance = strk.balance_of(proxy_contract_address);
-    //     println!("Proxy contract STRK balance: {}", proxy_balance);
+        // Get and print all relevant addresses
+        let proxy_balance = strk.balance_of(proxy_contract_address);
+        println!("Proxy contract STRK balance: {}", proxy_balance);
 
-    //     // Try to transfer from caller to proxy
-    //     start_cheat_caller_address(strk_address, fund_address);
-    //     strk.transfer(proxy_contract_address, 1_000_000_000_000_000_000_u256);
-    //     stop_cheat_caller_address(strk_address);
+        // Try to transfer from caller to proxy
+        start_cheat_caller_address(strk_address, fund_address);
+        strk.transfer(proxy_contract_address, 1_000_000_000_000_000_000_u256);
+        stop_cheat_caller_address(strk_address);
 
-    //     // Check balances after transfer
-    //     let proxy_balance_after = strk.balance_of(proxy_contract_address);
-    //     println!("Proxy contract STRK balance after transfer: {}", proxy_balance_after);
+        // Check balances after transfer
+        let proxy_balance_after = strk.balance_of(proxy_contract_address);
+        println!("Proxy contract STRK balance after transfer: {}", proxy_balance_after);
 
-    //     let proposal = proxy_types::ProposalWithArgs {
-    //         proposal_id: 0,
-    //         author_id: alice_proxy_id,
-    //         actions: proxy_types::ProposalActionWithArgs::Transfer(
-    //             (
-    //                 // 5. account in devnet
-    //                 0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap(),
-    //                 1_000_000_000_000_000_000_u256,
-    //                 // STRK token contract address
-    //                 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap()
-    //             )
-    //         ),
-    //     };
+        let proposal = proxy_types::ProposalWithArgs {
+            proposal_id: 0,
+            author_id: alice_proxy_id,
+            actions: proxy_types::ProposalActionWithArgs::Transfer(
+                (
+                    // 5. account in devnet
+                    0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap(),
+                    1_000_000_000_000_000_000_u256,
+                    // STRK token contract address
+                    0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap()
+                )
+            ),
+        };
         
-    //     let mut serialized = ArrayTrait::new();
-    //     proposal.serialize(ref serialized);
+        let mut serialized = ArrayTrait::new();
+        proposal.serialize(ref serialized);
         
-    //     let hash = poseidon_hash_span(serialized.span());
-    //     let (r, s): (felt252, felt252) = alice_key_pair.sign(hash).unwrap();
+        let hash = poseidon_hash_span(serialized.span());
+        let (r, s): (felt252, felt252) = alice_key_pair.sign(hash).unwrap();
 
-    //     let signed = proxy_types::Signed {
-    //         payload: serialized,
-    //         signature_r: r,
-    //         signature_s: s,
-    //     };
-    //     let mut proposal_id = 0;
-    //     match safe_dispatcher.create_and_approve_proposal(signed) {
-    //         Result::Ok(proposal_with_approvals) => {
-    //             println!("proposal created");
-    //             println!("proposal_with_approvals: {:?}", proposal_with_approvals);
-    //             proposal_id = proposal_with_approvals.proposal_id;
-    //         },
-    //         Result::Err(panic_data) => {
-    //             println!("panic_data: {:?}", panic_data);
-    //             assert(*panic_data.at(0) == 'signer_id equals context_id', *panic_data.at(0));
-    //         }
-    //     };
+        let signed = proxy_types::Signed {
+            payload: serialized,
+            signature_r: r,
+            signature_s: s,
+        };
+        let mut proposal_id = 0;
+        match safe_dispatcher.create_and_approve_proposal(signed) {
+            Result::Ok(proposal_with_approvals) => {
+                println!("proposal created");
+                println!("proposal_with_approvals: {:?}", proposal_with_approvals);
+                proposal_id = proposal_with_approvals.proposal_id;
+            },
+            Result::Err(panic_data) => {
+                println!("panic_data: {:?}", panic_data);
+                assert(*panic_data.at(0) == 'signer_id equals context_id', *panic_data.at(0));
+            }
+        };
 
-    //     let request = proxy_types::ConfirmationRequestWithSigner {
-    //         proposal_id,
-    //         signer_id: bob_proxy_id,
-    //         added_timestamp: 0,
-    //     };
+        let request = proxy_types::ConfirmationRequestWithSigner {
+            proposal_id,
+            signer_id: bob_proxy_id,
+            added_timestamp: 0,
+        };
 
-    //     let mut serialized = ArrayTrait::new();
-    //     request.serialize(ref serialized);
-    //     let hash = poseidon_hash_span(serialized.span());
-    //     let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
+        let mut serialized = ArrayTrait::new();
+        request.serialize(ref serialized);
+        let hash = poseidon_hash_span(serialized.span());
+        let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
 
-    //     let signed = proxy_types::Signed {
-    //         payload: serialized,
-    //         signature_r: r,
-    //         signature_s: s,
-    //     };
+        let signed = proxy_types::Signed {
+            payload: serialized,
+            signature_r: r,
+            signature_s: s,
+        };
 
-    //     match safe_dispatcher.approve(signed) {
-    //         Result::Ok(proposal_with_approvals) => {
-    //             println!("proposal confirmed");
-    //             println!("proposal_with_approvals: {:?}", proposal_with_approvals);
-    //         },
-    //         Result::Err(panic_data) => {
-    //             println!("panic_data: {:?}", panic_data);
-    //         }
-    //     };
+        match safe_dispatcher.approve(signed) {
+            Result::Ok(proposal_with_approvals) => {
+                println!("proposal confirmed");
+                println!("proposal_with_approvals: {:?}", proposal_with_approvals);
+            },
+            Result::Err(panic_data) => {
+                println!("panic_data: {:?}", panic_data);
+            }
+        };
         
-    //     let recipient: ContractAddress = 0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap();
-    //     let balance_before = strk.balance_of(recipient);
-    //     println!("Recipient balance before: {}", balance_before);
+        let recipient: ContractAddress = 0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap();
+        let balance_before = strk.balance_of(recipient);
+        println!("Recipient balance before: {}", balance_before);
 
-    //     // After Bob's approval, add Carol's approval
-    //     let request = proxy_types::ConfirmationRequestWithSigner {
-    //         proposal_id,
-    //         signer_id: carol_proxy_id,
-    //         added_timestamp: 0,
-    //     };
+        // After Bob's approval, add Carol's approval
+        let request = proxy_types::ConfirmationRequestWithSigner {
+            proposal_id,
+            signer_id: carol_proxy_id,
+            added_timestamp: 0,
+        };
 
-    //     let mut serialized = ArrayTrait::new();
-    //     request.serialize(ref serialized);
-    //     let hash = poseidon_hash_span(serialized.span());
-    //     let (r, s): (felt252, felt252) = carol_key_pair.sign(hash).unwrap();
+        let mut serialized = ArrayTrait::new();
+        request.serialize(ref serialized);
+        let hash = poseidon_hash_span(serialized.span());
+        let (r, s): (felt252, felt252) = carol_key_pair.sign(hash).unwrap();
 
-    //     let signed = proxy_types::Signed {
-    //         payload: serialized,
-    //         signature_r: r,
-    //         signature_s: s,
-    //     };
+        let signed = proxy_types::Signed {
+            payload: serialized,
+            signature_r: r,
+            signature_s: s,
+        };
         
-    //     let _ = spy_dispatcher.approve(signed);
+        let _ = spy_dispatcher.approve(signed);
 
-    //     spy.assert_emitted(
-    //         @array![
-    //             (
-    //                 proxy_contract_address,
-    //                 Event::TransferSuccess(proxy_types::TransferSuccess { message: "Transfer successful" })
-    //             )
-    //         ]
-    //     );
+        spy.assert_emitted(
+            @array![
+                (
+                    proxy_contract_address,
+                    Event::TransferSuccess(proxy_types::TransferSuccess { message: "Transfer successful" })
+                )
+            ]
+        );
 
-    //     // Check balance after all approvals
-    //     let balance_after = strk.balance_of(recipient);
-    //     println!("Recipient balance after: {}", balance_after);
-    //     assert(balance_after == balance_before + 1_000_000_000_000_000_000_u256, 'Transfer failed');
+        // Check balance after all approvals
+        let balance_after = strk.balance_of(recipient);
+        println!("Recipient balance after: {}", balance_after);
+        assert(balance_after == balance_before + 1_000_000_000_000_000_000_u256, 'Transfer failed');
 
-    // }
+    }
 
     #[test]
     #[feature("safe_dispatcher")]
