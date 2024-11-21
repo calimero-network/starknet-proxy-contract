@@ -59,7 +59,6 @@ pub mod ProxyContract {
         Signed,
         ContextIdentity,
         MemberAction,
-        ConfirmationRequestWithSigner,
         ProposalWithApprovals,
         ExternalCallSuccess,
         TransferSuccess,
@@ -88,13 +87,12 @@ pub mod ProxyContract {
         context_id: ContextId,
         context_config_account_id: ContractAddress,
         num_approvals: u32,
-        proposal_nonce: ProposalId,
         num_proposals_pk: Map::<felt252, u32>,
         active_proposals_limit: u32,
-        approvals: Map::<ProposalId, Approvals>,
-        proposals: Map::<ProposalId, Proposal>,
+        approvals: Map::<felt252, Approvals>,
+        proposals: Map::<felt252, Proposal>,
         context_storage: ContextStorage,
-        proposal_indices: Vec<ProposalId>,
+        proposal_indices: Vec<felt252>,
     }
 
     #[event]
@@ -110,17 +108,21 @@ pub mod ProxyContract {
     #[storage]
     struct Storage {
         proxy_contract: ProxyContract,
-        proposal_action_arguments: Map::<ProposalId, Vec<felt252>>,
+        proposal_action_arguments: Map::<felt252, Vec<felt252>>,
         #[substorage(v0)]
         ownable: OwnableComponent::Storage
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, owner: ContractAddress, context_id: ContextId, context_config_account_id: ContractAddress) {
+    fn constructor(
+        ref self: ContractState, 
+        owner: ContractAddress, 
+        context_id: ContextId, 
+        context_config_account_id: ContractAddress
+    ) {
         self.ownable.initializer(owner);
         self.proxy_contract.context_id.write(context_id);
         self.proxy_contract.context_config_account_id.write(context_config_account_id);
-        self.proxy_contract.proposal_nonce.write(0);
         self.proxy_contract.num_approvals.write(3);
         self.proxy_contract.active_proposals_limit.write(10);
     }
@@ -140,11 +142,13 @@ pub mod ProxyContract {
                     // Verify signature matches the proposal author
                     assert(self.verify_signature(request, proposal.author_id.clone()), 'Invalid signature');
                     
-                    let author_id = self.create_identity_key(@proposal.author_id);
-                    let num_proposals = self.proxy_contract.num_proposals_pk.read(author_id);
-                    assert!(
+                    // Create hash key for author's identity
+                    let author_key = self.create_identity_key(@proposal.author_id);
+                    let num_proposals = self.proxy_contract.num_proposals_pk.read(author_key);
+                    
+                    assert(
                         num_proposals <= self.proxy_contract.active_proposals_limit.read(),
-                        "Account has too many active proposals"
+                        'Too many active proposals'
                     );
                     
                     self.perform_action_by_member(MemberAction::Create((proposal, num_proposals)))
@@ -166,29 +170,30 @@ pub mod ProxyContract {
         fn proposals(self: @ContractState, offset: u32, length: u32) -> Array<Proposal> {
             let mut result = ArrayTrait::new();
             let indices = self.proxy_contract.proposal_indices;
-            let len: u32 = indices.len().try_into().unwrap();
-            let mut i: u32 = offset;
+            let mut i = offset;
             loop {
-                if i >= offset + length || i >= len {
+                if i >= offset + length || i >= indices.len().try_into().unwrap() {
                     break;
                 }
-                let proposal_id = indices.at(i.try_into().unwrap()).read();
-                result.append(self.proxy_contract.proposals.read(proposal_id));
+                let proposal_key = indices.at(i.try_into().unwrap()).read();
+                result.append(self.proxy_contract.proposals.read(proposal_key));
                 i += 1;
             };
             result
         }
 
         fn proposal(self: @ContractState, proposal_id: ProposalId) -> Option<Proposal> {
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            
+            // Check if proposal_key exists in indices first
             let indices = self.proxy_contract.proposal_indices;
-            let len: u32 = indices.len().try_into().unwrap();
             let mut exists = false;
-            let mut i: u32 = 0;
+            let mut i = 0;
             loop {
-                if i >= len {
+                if i >= indices.len() {
                     break;
                 }
-                if indices.at(i.try_into().unwrap()).read() == proposal_id {
+                if indices.at(i).read() == proposal_key {
                     exists = true;
                     break;
                 }
@@ -196,7 +201,7 @@ pub mod ProxyContract {
             };
             
             if exists {
-                Option::Some(self.proxy_contract.proposals.read(proposal_id))
+                Option::Some(self.proxy_contract.proposals.read(proposal_key))
             } else {
                 Option::None
             }
@@ -211,9 +216,10 @@ pub mod ProxyContract {
         }
 
         fn get_confirmations_count(self: @ContractState, proposal_id: ProposalId) -> ProposalWithApprovals {
-            let current_proposal = self.proxy_contract.approvals.entry(proposal_id);
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            let current_proposal = self.proxy_contract.approvals.entry(proposal_key);
             let size = current_proposal.approvals_count.read();
-    
+        
             ProposalWithApprovals {
                 proposal_id,
                 num_approvals: size,
@@ -223,7 +229,8 @@ pub mod ProxyContract {
         // Add a helper function to get all approvers for a proposal
         fn get_proposal_approvers(ref self: ContractState, proposal_id: ProposalId) -> Array<ContextIdentity> {
             let mut approvers = ArrayTrait::new();
-            let current_proposal = self.proxy_contract.approvals.entry(proposal_id);
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            let current_proposal = self.proxy_contract.approvals.entry(proposal_key);
             let keys = current_proposal.approval_keys;
             
             // Iterate through all stored approval keys
@@ -377,7 +384,8 @@ pub mod ProxyContract {
     impl ProxyActions of ProxyActionsTrait {
 
         fn internal_confirm(ref self: ContractState, proposal_id: ProposalId, signer_id: ContextIdentity) {
-            let mut current_proposal_approvals = self.proxy_contract.approvals.entry(proposal_id);
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            let mut current_proposal_approvals = self.proxy_contract.approvals.entry(proposal_key);
             let signer_id_key = self.create_identity_key(@signer_id);
             
             // Read the full tuple (identity, approval status)
@@ -395,7 +403,7 @@ pub mod ProxyContract {
             current_proposal_approvals.approvals_count.write(new_approvals_count);
 
             if new_approvals_count >= self.proxy_contract.num_approvals.read() {
-                let request = self.remove_request(proposal_id);
+                let request = self.remove_request(proposal_id.clone());
                 self.execute_proposal(request, proposal_id);
             }
         }
@@ -407,10 +415,12 @@ pub mod ProxyContract {
             };
             let context_config_dispatcher = IContextConfigDispatcher { contract_address: self.proxy_contract.context_config_account_id.read() };
             let is_member = context_config_dispatcher.has_member(self.proxy_contract.context_id.read(), identity);
+
             assert!(is_member, "Not a context member");
+            
             match action {
                 MemberAction::Approve((identity, request_id)) => {
-                    self.internal_confirm(request_id, identity);
+                    self.internal_confirm(request_id.clone(), identity);
                     self.get_confirmations_count(request_id)
                 },
                 MemberAction::Create((proposal, num_proposals)) => 
@@ -419,7 +429,8 @@ pub mod ProxyContract {
         }
 
         fn remove_request(ref self: ContractState, proposal_id: ProposalId) -> Proposal {
-            let proposal = self.proxy_contract.proposals.entry(proposal_id).read();
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            let proposal = self.proxy_contract.proposals.entry(proposal_key).read();
             let proposal_author = proposal.author_id.clone();
             
             // Check if the author is zero
@@ -434,24 +445,25 @@ pub mod ProxyContract {
                 num_requests = num_requests - 1;
             }
             
-            let mut new_proposal = self.proxy_contract.proposals.entry(proposal_id);
-            new_proposal.proposal_id.write(0);
-            // Write zero ContextIdentity
+            let mut new_proposal = self.proxy_contract.proposals.entry(proposal_key);
+            // Zero out the proposal
+            new_proposal.proposal_id.write(ProposalId { high: 0, low: 0 });
             new_proposal.author_id.write(ContextIdentity { high: 0, low: 0 });
             self.proxy_contract.num_proposals_pk.entry(author_key).write(num_requests);
             proposal
         }
 
         fn internal_create_proposal(ref self: ContractState, proposal_with_args: ProposalWithArgs, num_proposals: u32,) -> ProposalWithApprovals {
-            // assert_membership(call_result);
-
             // Create storage key from author_id
             let author_key = self.create_identity_key(@proposal_with_args.author_id);
             self.proxy_contract.num_proposals_pk.entry(author_key).write(num_proposals);
             
-            let proposal_id = self.proxy_contract.proposal_nonce.read();
-            let mut new_proposal = self.proxy_contract.proposals.entry(proposal_id);
-            new_proposal.proposal_id.write(proposal_id);
+            // Use the provided proposal_id from proposal_with_args
+            let proposal_id = proposal_with_args.proposal_id;
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            
+            let mut new_proposal = self.proxy_contract.proposals.entry(proposal_key);
+            new_proposal.proposal_id.write(proposal_id.clone());
             new_proposal.author_id.write(proposal_with_args.author_id.clone());
 
             let (storage_action, args) = match proposal_with_args.actions {
@@ -498,9 +510,9 @@ pub mod ProxyContract {
             };
             new_proposal.actions.write(storage_action);
 
-            // Store args if any exist (this part handles both external calls and context storage)
+            // Store args if any exist
             if !args.is_empty() { 
-                let mut args_vec = self.proposal_action_arguments.entry(proposal_id);
+                let mut args_vec = self.proposal_action_arguments.entry(proposal_key);  // Use proposal_key instead
                 let mut i: usize = 0;
                 loop {
                     if i >= args.len() {
@@ -511,28 +523,31 @@ pub mod ProxyContract {
                 }
             }
             
-            self.internal_confirm(proposal_id, proposal_with_args.author_id);
+            self.internal_confirm(proposal_id.clone(), proposal_with_args.author_id);
 
-            self.proxy_contract.proposal_nonce.write(proposal_id + 1);
+            // Track this proposal
+            self.proxy_contract.proposal_indices.append().write(proposal_key);
 
             return ProposalWithApprovals {
-                proposal_id,
+                proposal_id: proposal_id.clone(),
                 num_approvals: self.get_confirmations_count(proposal_id).num_approvals,
             };
         }
 
         fn execute_proposal(ref self: ContractState, proposal: Proposal, proposal_id: ProposalId) {
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            
             match proposal.actions {
                 ProposalAction::ExternalFunctionCall((contract_address, selector)) => {
-                    // Get the arguments for this call from storage
+                    // Get the arguments for this call from storage using proposal_key
                     let mut calldata = ArrayTrait::new();
-                    let call_args = self.proposal_action_arguments.entry(proposal_id);
+                    let call_args = self.proposal_action_arguments.entry(proposal_key);
                     let call_args_len = call_args.len();
                     for i in 0..call_args_len {
                         calldata.append(call_args.at(i).read());
                     };
                     
-                     // Execute the cross-contract call
+                    // Execute the cross-contract call
                     let syscall_result = syscalls::call_contract_syscall(
                         contract_address,  // target contract address
                         selector,         // function selector - method name
@@ -572,8 +587,8 @@ pub mod ProxyContract {
                     self.proxy_contract.active_proposals_limit.write(v);
                 },
                 ProposalAction::SetContextValue(storage_key) => {
-                    // Get the arguments from storage
-                    let args = self.proposal_action_arguments.entry(proposal_id);
+                    // Get the arguments from storage using proposal_key
+                    let args = self.proposal_action_arguments.entry(proposal_key);
 
                     // Read lengths and convert to u64
                     let key_len: u64 = args.at(0).read().try_into().unwrap();
@@ -670,6 +685,11 @@ pub mod ProxyContract {
         // Helper to create storage key from identity
         fn create_identity_key(self: @ContractState, identity: @ContextIdentity) -> felt252 {
             poseidon_hash_span(array![*identity.high, *identity.low].span())
+        }
+
+        // Helper to create storage key from proposal_id
+        fn create_proposal_key(self: @ContractState, proposal_id: @ProposalId) -> felt252 {
+            poseidon_hash_span(array![*proposal_id.high, *proposal_id.low].span())
         }
     }
 }

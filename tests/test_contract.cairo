@@ -39,7 +39,6 @@ mod tests {
 
     use core::traits::Into;
     use core::array::ArrayTrait;
-    use core::array::SpanTrait;
     use core::byte_array::ByteArray;
     use core::byte_array::ByteArrayTrait;
     use core::option::OptionTrait;
@@ -162,8 +161,14 @@ mod tests {
         let proxy_balance_after = strk.balance_of(proxy_contract_address);
         println!("Proxy contract STRK balance after transfer: {}", proxy_balance_after);
 
+        // Create a ProposalId for the test
+        let mut proposal_id = proxy_types::ProposalId {
+            high: 0x1234_felt252,
+            low: 0x5678_felt252
+        };
+
         let proposal = proxy_types::ProposalWithArgs {
-            proposal_id: 0,
+            proposal_id: proposal_id.clone(),
             author_id: alice_proxy_id,
             actions: proxy_types::ProposalActionWithArgs::Transfer(
                 (
@@ -190,12 +195,10 @@ mod tests {
             signature_s: s,
         };
     
-        let mut proposal_id = 0;
         match safe_dispatcher.mutate(signed) {
             Result::Ok(proposal_with_approvals) => {
                 println!("proposal created");
                 println!("proposal_with_approvals: {:?}", proposal_with_approvals);
-                proposal_id = proposal_with_approvals.proposal_id;
             },
             Result::Err(panic_data) => {
                 println!("panic_data: {:?}", panic_data);
@@ -205,7 +208,7 @@ mod tests {
 
         // Approve proposal through mutate
         let approve_request = proxy_types::ConfirmationRequestWithSigner {
-            proposal_id,
+            proposal_id: proposal_id.clone(),
             signer_id: bob_proxy_id,
             added_timestamp: 0,
         };
@@ -366,9 +369,15 @@ mod tests {
         println!("key_array: {:?}", key_array);
         println!("value_array: {:?}", value_array);
 
+        // Create a ProposalId for the test
+        let mut proposal_id = proxy_types::ProposalId {
+            high: 0x4321_felt252,
+            low: 0x8765_felt252
+        };
+
         // Create the storage proposal
         let storage_proposal = proxy_types::ProposalWithArgs {
-            proposal_id: 0,
+            proposal_id: proposal_id.clone(),
             author_id: alice_proxy_id,
             actions: proxy_types::ProposalActionWithArgs::SetContextValue(
                 (key_array.clone(), value_array.clone())
@@ -387,7 +396,7 @@ mod tests {
             signature_r: r,
             signature_s: s,
         };
-        let mut proposal_id = 0;
+
         match safe_dispatcher.mutate(signed) {
             Result::Ok(proposal_with_approvals) => {
                 println!("proposal created");
@@ -401,7 +410,7 @@ mod tests {
         };
 
         let request = proxy_types::ConfirmationRequestWithSigner {
-            proposal_id,
+            proposal_id: proposal_id.clone(),
             signer_id: bob_proxy_id,
             added_timestamp: 0,
         };
@@ -430,7 +439,7 @@ mod tests {
 
         // After Bob's approval, add Carol's approval
         let request = proxy_types::ConfirmationRequestWithSigner {
-            proposal_id,
+            proposal_id: proposal_id.clone(),
             signer_id: carol_proxy_id,
             added_timestamp: 0,
         };

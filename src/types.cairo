@@ -1,23 +1,19 @@
-// use core::starknet::storage::{Map};
-// use starknet::Map;
-// use starknet::storage::{
-//     StoragePointerReadAccess, StoragePointerWriteAccess, Vec, VecTrait, MutableVecTrait
-// };
-
 use starknet::ContractAddress;
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
-pub type ProposalId = u32;
-// #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
-// pub type SignerId = felt252;
+pub struct ProposalId {
+    pub high: felt252,
+    pub low: felt252, 
+}
+
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub struct ContextId {
-    pub high: felt252,  // First 16 bytes (128 bits)
-    pub low: felt252,   // Second 16 bytes (128 bits)
+    pub high: felt252,
+    pub low: felt252, 
 }
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub struct ContextIdentity {
-    pub high: felt252,  // First 16 bytes
-    pub low: felt252,   // Second 16 bytes
+    pub high: felt252,
+    pub low: felt252, 
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
