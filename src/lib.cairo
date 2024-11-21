@@ -65,6 +65,7 @@ pub mod ProxyContract {
         SetContextValueSuccess,
         ProxyMutateRequest,
         ProxyMutateRequestWrapper,
+        ProposalCreated,
     };
 
     use starknet::syscalls::replace_class_syscall;
@@ -102,6 +103,7 @@ pub mod ProxyContract {
         ExternalCallSuccess: ExternalCallSuccess,
         TransferSuccess: TransferSuccess,
         SetContextValueSuccess: SetContextValueSuccess,
+        ProposalCreated: ProposalCreated,
         #[flat]
         OwnableEvent: OwnableComponent::Event
     }
@@ -210,11 +212,17 @@ pub mod ProxyContract {
             self.proxy_contract.active_proposals_limit.read()
         }
 
-        fn get_confirmations_count(self: @ContractState, proposal_id: ProposalId) -> ProposalWithApprovals {
+        fn get_confirmations_count(ref self: ContractState, proposal_id: ProposalId) -> ProposalWithApprovals {
             let proposal_key = self.create_proposal_key(@proposal_id);
             let current_proposal = self.proxy_contract.approvals.entry(proposal_key);
             let size = current_proposal.approvals_count.read();
         
+            // Emit event with the result
+            self.emit(ProposalCreated {
+                proposal_id: proposal_id.clone(),
+                num_approvals: size,
+            });
+
             ProposalWithApprovals {
                 proposal_id,
                 num_approvals: size,
@@ -222,14 +230,16 @@ pub mod ProxyContract {
         }
 
         // Add a helper function to get all approvers for a proposal
-        fn get_proposal_approvers(ref self: ContractState, proposal_id: ProposalId) -> Array<ContextIdentity> {
+        fn proposal_approvers(ref self: ContractState, proposal_id: ProposalId) -> Array<ContextIdentity> {
             let mut approvers = ArrayTrait::new();
             let proposal_key = self.create_proposal_key(@proposal_id);
             let current_proposal = self.proxy_contract.approvals.entry(proposal_key);
             let keys = current_proposal.approval_keys;
             
-            // Iterate through all stored approval keys
+            // Debug prints
             let keys_len = keys.len();
+            println!("Number of approval keys: {}", keys_len);
+            
             let mut i = 0;
             loop {
                 if i >= keys_len {
@@ -237,8 +247,11 @@ pub mod ProxyContract {
                 }
                 
                 let key = keys.at(i).read();
-                // Get the identity from the approvals map
+                println!("Key at {}: {:?}", i, key);
+                
                 let (identity, approved) = current_proposal.approvals.entry(key).read();
+                println!("Identity: {:?}, Approved: {}", identity, approved);
+                
                 if approved {
                     approvers.append(identity);
                 }
@@ -523,9 +536,17 @@ pub mod ProxyContract {
             // Track this proposal
             self.proxy_contract.proposal_indices.append().write(proposal_key);
 
-            return ProposalWithApprovals {
+            let num_approvals = self.get_confirmations_count(proposal_id.clone()).num_approvals;
+
+            // Emit event with the result
+            self.emit(ProposalCreated {
                 proposal_id: proposal_id.clone(),
-                num_approvals: self.get_confirmations_count(proposal_id).num_approvals,
+                num_approvals,
+            });
+
+            return ProposalWithApprovals {
+                proposal_id: proposal_id,
+                num_approvals,
             };
         }
 

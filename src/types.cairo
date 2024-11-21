@@ -115,3 +115,9 @@ pub struct TransferSuccess {
 pub struct SetContextValueSuccess {
     pub message: ByteArray,
 }
+
+#[derive(Drop, starknet::Event)]
+pub struct ProposalCreated {
+    pub proposal_id: ProposalId,
+    pub num_approvals: u32,
+}
