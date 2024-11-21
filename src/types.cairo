@@ -62,6 +62,12 @@ pub enum ProposalAction {
     SetContextValue: felt252,
 }
 
+#[derive(Drop, Serde)]
+pub enum ProxyMutateRequest {
+    Propose: ProposalWithArgs,
+    Approve: ConfirmationRequestWithSigner,
+}
+
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub struct Proposal {
     pub proposal_id: ProposalId,

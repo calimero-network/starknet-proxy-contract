@@ -177,18 +177,21 @@ mod tests {
         };
         
         let mut serialized = ArrayTrait::new();
-        proposal.serialize(ref serialized);
+        // Wrap in ProxyMutateRequest::Propose
+        let mutate_request = proxy_types::ProxyMutateRequest::Propose(proposal);
+        mutate_request.serialize(ref serialized);
         
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = alice_key_pair.sign(hash).unwrap();
-
+    
         let signed = proxy_types::Signed {
             payload: serialized,
             signature_r: r,
             signature_s: s,
         };
+    
         let mut proposal_id = 0;
-        match safe_dispatcher.create_and_approve_proposal(signed) {
+        match safe_dispatcher.mutate(signed) {
             Result::Ok(proposal_with_approvals) => {
                 println!("proposal created");
                 println!("proposal_with_approvals: {:?}", proposal_with_approvals);
@@ -200,14 +203,18 @@ mod tests {
             }
         };
 
-        let request = proxy_types::ConfirmationRequestWithSigner {
+        // Approve proposal through mutate
+        let approve_request = proxy_types::ConfirmationRequestWithSigner {
             proposal_id,
             signer_id: bob_proxy_id,
             added_timestamp: 0,
         };
 
         let mut serialized = ArrayTrait::new();
-        request.serialize(ref serialized);
+        // Wrap in ProxyMutateRequest::Approve
+        let mutate_request = proxy_types::ProxyMutateRequest::Approve(approve_request);
+        mutate_request.serialize(ref serialized);
+        
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
 
@@ -217,15 +224,17 @@ mod tests {
             signature_s: s,
         };
 
-        match safe_dispatcher.approve(signed) {
+        match safe_dispatcher.mutate(signed) {
             Result::Ok(proposal_with_approvals) => {
-                println!("proposal confirmed");
+                println!("proposal approved");
                 println!("proposal_with_approvals: {:?}", proposal_with_approvals);
             },
             Result::Err(panic_data) => {
                 println!("panic_data: {:?}", panic_data);
+                panic!("Failed to approve proposal");
             }
         };
+
         
         let recipient: ContractAddress = 0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap();
         let balance_before = strk.balance_of(recipient);
@@ -239,7 +248,9 @@ mod tests {
         };
 
         let mut serialized = ArrayTrait::new();
-        request.serialize(ref serialized);
+        let mutate_request = proxy_types::ProxyMutateRequest::Approve(request);
+        mutate_request.serialize(ref serialized);
+
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = carol_key_pair.sign(hash).unwrap();
 
@@ -249,7 +260,7 @@ mod tests {
             signature_s: s,
         };
         
-        let _ = spy_dispatcher.approve(signed);
+        let _ = spy_dispatcher.mutate(signed);
 
         spy.assert_emitted(
             @array![
@@ -365,7 +376,8 @@ mod tests {
         };
         
         let mut serialized = ArrayTrait::new();
-        storage_proposal.serialize(ref serialized);
+        let mutate_request = proxy_types::ProxyMutateRequest::Propose(storage_proposal);
+        mutate_request.serialize(ref serialized);
         
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = alice_key_pair.sign(hash).unwrap();
@@ -376,7 +388,7 @@ mod tests {
             signature_s: s,
         };
         let mut proposal_id = 0;
-        match safe_dispatcher.create_and_approve_proposal(signed) {
+        match safe_dispatcher.mutate(signed) {
             Result::Ok(proposal_with_approvals) => {
                 println!("proposal created");
                 println!("proposal_with_approvals: {:?}", proposal_with_approvals);
@@ -395,7 +407,8 @@ mod tests {
         };
 
         let mut serialized = ArrayTrait::new();
-        request.serialize(ref serialized);
+        let mutate_request = proxy_types::ProxyMutateRequest::Approve(request);
+        mutate_request.serialize(ref serialized);
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
 
@@ -405,7 +418,7 @@ mod tests {
             signature_s: s,
         };
 
-        match safe_dispatcher.approve(signed) {
+        match safe_dispatcher.mutate(signed) {
             Result::Ok(proposal_with_approvals) => {
                 println!("proposal confirmed");
                 println!("proposal_with_approvals: {:?}", proposal_with_approvals);
@@ -423,7 +436,8 @@ mod tests {
         };
 
         let mut serialized = ArrayTrait::new();
-        request.serialize(ref serialized);
+        let mutate_request = proxy_types::ProxyMutateRequest::Approve(request);
+        mutate_request.serialize(ref serialized);
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = carol_key_pair.sign(hash).unwrap();
 
@@ -433,7 +447,7 @@ mod tests {
             signature_s: s,
         };
         
-        let _ = spy_dispatcher.approve(signed);
+        let _ = spy_dispatcher.mutate(signed);
 
         spy.assert_emitted(
             @array![

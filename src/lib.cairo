@@ -64,16 +64,10 @@ pub mod ProxyContract {
         ExternalCallSuccess,
         TransferSuccess,
         SetContextValueSuccess,
+        ProxyMutateRequest,
     };
 
     use starknet::syscalls::replace_class_syscall;
-
-    // First, add new types for mutation requests
-    #[derive(Drop, Serde)]
-    pub enum ProxyMutateRequest {
-        Propose: ProposalWithArgs,
-        Approve: ConfirmationRequestWithSigner,
-    }
 
     #[starknet::storage_node]
     pub struct Approvals {
