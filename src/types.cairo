@@ -59,6 +59,12 @@ pub enum ProposalAction {
 }
 
 #[derive(Drop, Serde)]
+pub struct ProxyMutateRequestWrapper {
+    pub signer_id: ContextIdentity,  // ECDSA verifying key
+    pub kind: ProxyMutateRequest,    // The original request
+}
+
+#[derive(Drop, Serde)]
 pub enum ProxyMutateRequest {
     Propose: ProposalWithArgs,
     Approve: ConfirmationRequestWithSigner,

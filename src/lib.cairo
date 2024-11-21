@@ -64,6 +64,7 @@ pub mod ProxyContract {
         TransferSuccess,
         SetContextValueSuccess,
         ProxyMutateRequest,
+        ProxyMutateRequestWrapper,
     };
 
     use starknet::syscalls::replace_class_syscall;
@@ -135,13 +136,13 @@ pub mod ProxyContract {
     impl ProxyContractImpl of super::interface::IProxyContract<ContractState> {
         fn mutate(ref self: ContractState, request: Signed) -> ProposalWithApprovals {
             let mut serialized = request.payload.span();
-            let mutate_request: ProxyMutateRequest = Serde::deserialize(ref serialized).unwrap();
+            let wrapped_request: ProxyMutateRequestWrapper = Serde::deserialize(ref serialized).unwrap();
             
-            match mutate_request {
+            // Verify signature using the wrapper's signer_id (ECDSA key)
+            assert(self.verify_signature(request, wrapped_request.signer_id.clone()), 'Invalid signature');
+            
+            match wrapped_request.kind {
                 ProxyMutateRequest::Propose(proposal) => {
-                    // Verify signature matches the proposal author
-                    assert(self.verify_signature(request, proposal.author_id.clone()), 'Invalid signature');
-                    
                     // Create hash key for author's identity
                     let author_key = self.create_identity_key(@proposal.author_id);
                     let num_proposals = self.proxy_contract.num_proposals_pk.read(author_key);
@@ -153,15 +154,9 @@ pub mod ProxyContract {
                     
                     self.perform_action_by_member(MemberAction::Create((proposal, num_proposals)))
                 },
-                ProxyMutateRequest::Approve(confirmation_request) => {
-                    // Verify signature matches the signer
-                    assert(
-                        self.verify_signature(request, confirmation_request.signer_id.clone()),
-                        'Invalid signature'
-                    );
-                    
+                ProxyMutateRequest::Approve(approval) => {
                     self.perform_action_by_member(
-                        MemberAction::Approve((confirmation_request.signer_id, confirmation_request.proposal_id))
+                        MemberAction::Approve((approval.signer_id, approval.proposal_id))
                     )
                 }
             }
