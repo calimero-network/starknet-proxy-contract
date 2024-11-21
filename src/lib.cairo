@@ -94,6 +94,7 @@ pub mod ProxyContract {
         approvals: Map::<ProposalId, Approvals>,
         proposals: Map::<ProposalId, Proposal>,
         context_storage: ContextStorage,
+        proposal_indices: Vec<ProposalId>,
     }
 
     #[event]
@@ -160,6 +161,53 @@ pub mod ProxyContract {
                     )
                 }
             }
+        }
+
+        fn proposals(self: @ContractState, offset: u32, length: u32) -> Array<Proposal> {
+            let mut result = ArrayTrait::new();
+            let indices = self.proxy_contract.proposal_indices;
+            let len: u32 = indices.len().try_into().unwrap();
+            let mut i: u32 = offset;
+            loop {
+                if i >= offset + length || i >= len {
+                    break;
+                }
+                let proposal_id = indices.at(i.try_into().unwrap()).read();
+                result.append(self.proxy_contract.proposals.read(proposal_id));
+                i += 1;
+            };
+            result
+        }
+
+        fn proposal(self: @ContractState, proposal_id: ProposalId) -> Option<Proposal> {
+            let indices = self.proxy_contract.proposal_indices;
+            let len: u32 = indices.len().try_into().unwrap();
+            let mut exists = false;
+            let mut i: u32 = 0;
+            loop {
+                if i >= len {
+                    break;
+                }
+                if indices.at(i.try_into().unwrap()).read() == proposal_id {
+                    exists = true;
+                    break;
+                }
+                i += 1;
+            };
+            
+            if exists {
+                Option::Some(self.proxy_contract.proposals.read(proposal_id))
+            } else {
+                Option::None
+            }
+        }
+        
+        fn get_num_approvals(self: @ContractState) -> u32 {
+            self.proxy_contract.num_approvals.read()
+        }
+
+        fn get_active_proposals_limit(self: @ContractState) -> u32 {
+            self.proxy_contract.active_proposals_limit.read()
         }
 
         fn get_confirmations_count(self: @ContractState, proposal_id: ProposalId) -> ProposalWithApprovals {
