@@ -5,7 +5,7 @@ use super::types::{
     ContextIdentity,
     ProposalWithApprovals
 };
-
+use starknet::ContractAddress;
 use starknet::ClassHash;
 
 #[starknet::interface]

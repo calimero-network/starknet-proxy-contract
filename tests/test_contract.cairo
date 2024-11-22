@@ -7,6 +7,7 @@ mod tests {
     };
     use snforge_std::{
         declare,
+        get_class_hash,
         ContractClassTrait,
         DeclareResultTrait, 
         start_cheat_caller_address,
@@ -49,16 +50,17 @@ mod tests {
 
     use core::poseidon::poseidon_hash_span;
 
-    fn deploy_contract(name: ByteArray, contract_address: ContractAddress, context_id: context_types::ContextId, context_config_account_id: ContractAddress) -> ContractAddress {
+    fn deploy_contract(name: ByteArray, contract_address: ContractAddress, context_id: context_types::ContextId, context_config_account_id: ContractAddress, native_token_address: ContractAddress) -> ContractAddress {
         let mut constructor_calldata = ArrayTrait::new();
         constructor_calldata.append(contract_address.into());
         // Append context_id high and low separately
         constructor_calldata.append(context_id.high);
         constructor_calldata.append(context_id.low);
         constructor_calldata.append(context_config_account_id.into());
+        constructor_calldata.append(native_token_address.into());
     
-        let contract = declare(name).unwrap().contract_class();
-        let (contract_address, _) = contract.deploy(@constructor_calldata).unwrap();
+        let declared_contract = declare(name).unwrap().contract_class();
+        let (contract_address, _) = declared_contract.deploy(@constructor_calldata).unwrap();
         contract_address
     }
 
@@ -80,7 +82,11 @@ mod tests {
     #[fork("devnet")]
     fn test_create_and_approve_proposal() {
 
-        let context_contract_felt: felt252 = 0x7cdd9d6ec666ad0954705f25f86e8adf064ae789ef34f042cba7e52e40536bb.into();
+        // STRK token transfer contract 
+        let strk_address: ContractAddress = 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap();
+        let strk = IERC20Dispatcher { contract_address: strk_address };
+
+        let context_contract_felt: felt252 = 0x783af9958c96caa8745d166bd29a2b81ac0bd0708e9b54babd4512ea9989f1c.into();
         let context_contract_address: ContractAddress = context_contract_felt.try_into().unwrap();
         let context_config_dispatcher = IContextConfigsSafeDispatcher { contract_address: context_contract_address };
         // 9. account in devnet
@@ -93,7 +99,7 @@ mod tests {
         let node1_public_key = node1.public_key;
         let node1_id: ContractAddress = node1_public_key.try_into().unwrap();
 
-        let proxy_contract_address = deploy_contract("ProxyContract", node1_id, context_id, context_contract_address);
+        let proxy_contract_address = deploy_contract("ProxyContract", node1_id, context_id, context_contract_address, strk_address);
 
         let safe_dispatcher = IProxyContractSafeDispatcher { contract_address: proxy_contract_address };
         let spy_dispatcher = IProxyContractDispatcher { contract_address: proxy_contract_address };
@@ -135,15 +141,11 @@ mod tests {
         add_members_to_context(
             context_config_dispatcher,
             context_id,
-            alice_context_id, // Alice is adding Bob
+            alice_context_id, // Alice is adding Bob and Carol
             alice_key_pair,
             1_u64, // increment nonce
             array![bob_context_id.clone(), carol_context_id.clone()]
         );
-
-        // STRK token transfer contract 
-        let strk_address: ContractAddress = 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap();
-        let strk = IERC20Dispatcher { contract_address: strk_address };
         
         let fund_address: ContractAddress = 0x2b40efa796351f7b2264301b6c73e117c6af033b41f6acf1db2b61d73d743bb.try_into().unwrap();
         println!("Fund address: {:?}", fund_address);
@@ -169,22 +171,23 @@ mod tests {
 
         let proposal = proxy_types::ProposalWithArgs {
             proposal_id: proposal_id.clone(),
-            author_id: alice_proxy_id,
+            author_id: alice_proxy_id.clone(),
             actions: proxy_types::ProposalActionWithArgs::Transfer(
                 (
                     // 5. account in devnet
                     0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap(),
                     1_000_000_000_000_000_000_u256,
-                    // STRK token contract address
-                    0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap()
                 )
             ),
         };
         
         let mut serialized = ArrayTrait::new();
-        // Wrap in ProxyMutateRequest::Propose
-        let mutate_request = proxy_types::ProxyMutateRequest::Propose(proposal);
-        mutate_request.serialize(ref serialized);
+        // Wrap in ProxyMutateRequestWrapper
+        let wrapper = proxy_types::ProxyMutateRequestWrapper {
+            signer_id: alice_proxy_id.clone(),
+            kind: proxy_types::ProxyMutateRequest::Propose(proposal),
+        };
+        wrapper.serialize(ref serialized);
         
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = alice_key_pair.sign(hash).unwrap();
@@ -209,14 +212,16 @@ mod tests {
         // Approve proposal through mutate
         let approve_request = proxy_types::ConfirmationRequestWithSigner {
             proposal_id: proposal_id.clone(),
-            signer_id: bob_proxy_id,
+            signer_id: bob_proxy_id.clone(),
             added_timestamp: 0,
         };
 
         let mut serialized = ArrayTrait::new();
-        // Wrap in ProxyMutateRequest::Approve
-        let mutate_request = proxy_types::ProxyMutateRequest::Approve(approve_request);
-        mutate_request.serialize(ref serialized);
+        let wrapper = proxy_types::ProxyMutateRequestWrapper {
+            signer_id: bob_proxy_id.clone(),
+            kind: proxy_types::ProxyMutateRequest::Approve(approve_request),
+        };
+        wrapper.serialize(ref serialized);
         
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
@@ -238,6 +243,15 @@ mod tests {
             }
         };
 
+        match safe_dispatcher.proposal_approvers(proposal_id.clone()) {
+            Result::Ok(approvals) => {
+                println!("proposal approvals: {:?}", approvals);
+            },
+            Result::Err(err) => {
+                panic!("Failed to get proposal approvals: {:?}", err);
+            }
+        };
+
         
         let recipient: ContractAddress = 0x4169c2daf88e2cb8c2563bd15a02d989207613c09d4347a4374c00e62b06dff.try_into().unwrap();
         let balance_before = strk.balance_of(recipient);
@@ -246,13 +260,16 @@ mod tests {
         // After Bob's approval, add Carol's approval
         let request = proxy_types::ConfirmationRequestWithSigner {
             proposal_id,
-            signer_id: carol_proxy_id,
+            signer_id: carol_proxy_id.clone(),
             added_timestamp: 0,
         };
 
         let mut serialized = ArrayTrait::new();
-        let mutate_request = proxy_types::ProxyMutateRequest::Approve(request);
-        mutate_request.serialize(ref serialized);
+        let wrapper = proxy_types::ProxyMutateRequestWrapper {
+            signer_id: carol_proxy_id.clone(),
+            kind: proxy_types::ProxyMutateRequest::Approve(request),
+        };
+        wrapper.serialize(ref serialized);
 
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = carol_key_pair.sign(hash).unwrap();
@@ -285,8 +302,11 @@ mod tests {
     #[feature("safe_dispatcher")]
     #[fork("devnet")]
     fn test_create_context_variable_values() {
+        // STRK token transfer contract 
+        let strk_address: ContractAddress = 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap();
+        let strk = IERC20Dispatcher { contract_address: strk_address };
 
-        let context_contract_felt: felt252 = 0x7cdd9d6ec666ad0954705f25f86e8adf064ae789ef34f042cba7e52e40536bb.into();
+        let context_contract_felt: felt252 = 0x783af9958c96caa8745d166bd29a2b81ac0bd0708e9b54babd4512ea9989f1c.into();
         let context_contract_address: ContractAddress = context_contract_felt.try_into().unwrap();
         let context_config_dispatcher = IContextConfigsSafeDispatcher { contract_address: context_contract_address };
         // 9. account in devnet
@@ -299,7 +319,7 @@ mod tests {
         let node1_public_key = node1.public_key;
         let node1_id: ContractAddress = node1_public_key.try_into().unwrap();
 
-        let proxy_contract_address = deploy_contract("ProxyContract", node1_id, context_id, context_contract_address);
+        let proxy_contract_address = deploy_contract("ProxyContract", node1_id, context_id, context_contract_address, strk_address);
         println!("proxy_contract_address: {:?}", proxy_contract_address);
 
         let safe_dispatcher = IProxyContractSafeDispatcher { contract_address: proxy_contract_address };
@@ -378,15 +398,19 @@ mod tests {
         // Create the storage proposal
         let storage_proposal = proxy_types::ProposalWithArgs {
             proposal_id: proposal_id.clone(),
-            author_id: alice_proxy_id,
+            author_id: alice_proxy_id.clone(),
             actions: proxy_types::ProposalActionWithArgs::SetContextValue(
                 (key_array.clone(), value_array.clone())
             ),
         };
         
+        // Create and sign the proposal
         let mut serialized = ArrayTrait::new();
-        let mutate_request = proxy_types::ProxyMutateRequest::Propose(storage_proposal);
-        mutate_request.serialize(ref serialized);
+        let wrapper = proxy_types::ProxyMutateRequestWrapper {
+            signer_id: alice_proxy_id.clone(),
+            kind: proxy_types::ProxyMutateRequest::Propose(storage_proposal),
+        };
+        wrapper.serialize(ref serialized);
         
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = alice_key_pair.sign(hash).unwrap();
@@ -411,13 +435,18 @@ mod tests {
 
         let request = proxy_types::ConfirmationRequestWithSigner {
             proposal_id: proposal_id.clone(),
-            signer_id: bob_proxy_id,
+            signer_id: bob_proxy_id.clone(),
             added_timestamp: 0,
         };
 
         let mut serialized = ArrayTrait::new();
-        let mutate_request = proxy_types::ProxyMutateRequest::Approve(request);
-        mutate_request.serialize(ref serialized);
+        let wrapper = proxy_types::ProxyMutateRequestWrapper {
+            signer_id: bob_proxy_id.clone(),
+            kind: proxy_types::ProxyMutateRequest::Approve(request),
+        };
+        wrapper.serialize(ref serialized);
+
+        
         let hash = poseidon_hash_span(serialized.span());
         let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
 
@@ -445,10 +474,14 @@ mod tests {
         };
 
         let mut serialized = ArrayTrait::new();
-        let mutate_request = proxy_types::ProxyMutateRequest::Approve(request);
-        mutate_request.serialize(ref serialized);
+        let wrapper = proxy_types::ProxyMutateRequestWrapper {
+            signer_id: bob_proxy_id.clone(),
+            kind: proxy_types::ProxyMutateRequest::Approve(request),
+        };
+        wrapper.serialize(ref serialized);
+
         let hash = poseidon_hash_span(serialized.span());
-        let (r, s): (felt252, felt252) = carol_key_pair.sign(hash).unwrap();
+        let (r, s): (felt252, felt252) = bob_key_pair.sign(hash).unwrap();
 
         let signed = proxy_types::Signed {
             payload: serialized,
@@ -627,13 +660,14 @@ mod tests {
         proxy_contract_address: ContractAddress,
     ) {
         // 4. account in devnet
-        let owner: ContractAddress = 0x342b2bdb2060f9c11179b96061d8b12d0941fbee2709cac9197eb537ad1a0bd.try_into().unwrap();
+        let owner: ContractAddress = 0x302470f7b9d5002e25bb4ae079847c55cce2b33933dab540b67c73aa27fbd0b.try_into().unwrap();
+        
         start_cheat_caller_address(context_contract_address, owner);
-
         // Devnet proxy contract class hash
-        let class_hash: ClassHash = 0xc3e2459943574a078bbe325919ac42647c2933289040a4423f62b925762bb7.try_into().unwrap();
+        let class_hash: ClassHash = 0x3b920deb62e2c158062c34366284a340468b67f94ceb9456d63edb504661c95.try_into().unwrap();
+        let native_token_address: ContractAddress = 0x04718F5A0FC34CC1AF16A1CDEE98FFB20C31F5CD61D6AB07201858F4287C938D.try_into().unwrap();
         // Set the proxy contract class hash - devnet
-        match safe_dispatcher.set_proxy_contract_class_hash(class_hash) {
+        match safe_dispatcher.set_proxy_contract_class_hash(class_hash, native_token_address) {
             Result::Ok(_) => {},
             Result::Err(err) => {
                 panic!("Failed to set proxy contract class hash: {:?}", err);

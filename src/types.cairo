@@ -52,7 +52,7 @@ pub struct Approvals {
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub enum ProposalAction {
     ExternalFunctionCall:(ContractAddress, felt252),
-    Transfer: (ContractAddress, u256, ContractAddress),
+    Transfer: (ContractAddress, u256),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
     SetContextValue: felt252,
@@ -81,7 +81,7 @@ pub struct Proposal {
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum ProposalActionWithArgs {
     ExternalFunctionCall:(ContractAddress, felt252, Array<felt252>),
-    Transfer: (ContractAddress, u256, ContractAddress),
+    Transfer: (ContractAddress, u256),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
     SetContextValue: (Array<felt252>, Array<felt252>),

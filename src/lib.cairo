@@ -40,6 +40,7 @@ pub mod ProxyContract {
         Vec,
         MutableVecTrait
     };
+    use core::num::traits::Zero;
 
     use openzeppelin::token::erc20::interface::{IERC20Dispatcher, IERC20DispatcherTrait};
     use core::poseidon::poseidon_hash_span;
@@ -95,6 +96,7 @@ pub mod ProxyContract {
         proposals: Map::<felt252, Proposal>,
         context_storage: ContextStorage,
         proposal_indices: Vec<felt252>,
+        native_token_address: ContractAddress,  // Storage for default token address
     }
 
     #[event]
@@ -121,13 +123,15 @@ pub mod ProxyContract {
         ref self: ContractState, 
         owner: ContractAddress, 
         context_id: ContextId, 
-        context_config_account_id: ContractAddress
+        context_config_account_id: ContractAddress,
+        native_token_address: ContractAddress
     ) {
         self.ownable.initializer(owner);
         self.proxy_contract.context_id.write(context_id);
         self.proxy_contract.context_config_account_id.write(context_config_account_id);
         self.proxy_contract.num_approvals.write(3);
         self.proxy_contract.active_proposals_limit.write(10);
+        self.proxy_contract.native_token_address.write(native_token_address);
     }
 
     #[abi(embed_v0)]
@@ -238,8 +242,6 @@ pub mod ProxyContract {
             
             // Debug prints
             let keys_len = keys.len();
-            println!("Number of approval keys: {}", keys_len);
-            
             let mut i = 0;
             loop {
                 if i >= keys_len {
@@ -247,10 +249,7 @@ pub mod ProxyContract {
                 }
                 
                 let key = keys.at(i).read();
-                println!("Key at {}: {:?}", i, key);
-                
                 let (identity, approved) = current_proposal.approvals.entry(key).read();
-                println!("Identity: {:?}, Approved: {}", identity, approved);
                 
                 if approved {
                     approvers.append(identity);
@@ -478,8 +477,8 @@ pub mod ProxyContract {
                 ProposalActionWithArgs::ExternalFunctionCall((addr, selector, args)) => {
                     (ProposalAction::ExternalFunctionCall((addr, selector)), args)
                 },
-                ProposalActionWithArgs::Transfer((recipient, amount, token_address)) => 
-                    (ProposalAction::Transfer((recipient, amount, token_address)), ArrayTrait::new()),
+                ProposalActionWithArgs::Transfer((recipient, amount)) => 
+                    (ProposalAction::Transfer((recipient, amount)), ArrayTrait::new()),
                 ProposalActionWithArgs::SetNumApprovals(v) => 
                     (ProposalAction::SetNumApprovals(v), ArrayTrait::new()),
                 ProposalActionWithArgs::SetActiveProposalsLimit(v) => 
@@ -584,7 +583,13 @@ pub mod ProxyContract {
                         }
                     }
                 },
-                ProposalAction::Transfer((recipient, amount, token_address)) => {
+                ProposalAction::Transfer((recipient, amount)) => {
+                    // Get default token address from storage
+                    let token_address = self.proxy_contract.native_token_address.read();
+                    
+                    // Check if default token is set
+                    assert(!token_address.is_zero(), 'Token address not set');
+                    
                     // Create ERC20 dispatcher
                     let erc20_dispatcher = IERC20Dispatcher { contract_address: token_address };
                     
