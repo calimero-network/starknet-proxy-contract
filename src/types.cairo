@@ -26,6 +26,7 @@ pub struct ProposalWithApprovals {
 pub enum MemberAction {
     Approve: (ContextIdentity, ProposalId),
     Create: (ProposalWithArgs, u32),
+    Delete: (ContextIdentity, ProposalId),
 }
 
 #[derive(Clone, Debug)]
@@ -51,7 +52,7 @@ pub struct Approvals {
 // Storage version
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
 pub enum ProposalAction {
-    ExternalFunctionCall:(ContractAddress, felt252),
+    ExternalFunctionCall:(ContractAddress, felt252, u256),
     Transfer: (ContractAddress, u256),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
@@ -68,6 +69,7 @@ pub struct ProxyMutateRequestWrapper {
 pub enum ProxyMutateRequest {
     Propose: ProposalWithArgs,
     Approve: ConfirmationRequestWithSigner,
+    DeleteProposal: ProposalId,
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
@@ -80,7 +82,7 @@ pub struct Proposal {
 // Runtime version used for contract calls
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum ProposalActionWithArgs {
-    ExternalFunctionCall:(ContractAddress, felt252, Array<felt252>),
+    ExternalFunctionCall:(ContractAddress, felt252, u256, Array<felt252>),
     Transfer: (ContractAddress, u256),
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,

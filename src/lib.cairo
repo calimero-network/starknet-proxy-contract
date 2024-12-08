@@ -164,11 +164,16 @@ pub mod ProxyContract {
                     self.perform_action_by_member(
                         MemberAction::Approve((approval.signer_id, approval.proposal_id))
                     )
+                },
+                ProxyMutateRequest::DeleteProposal(proposal_id) => {
+                    self.perform_action_by_member(
+                        MemberAction::Delete((wrapped_request.signer_id, proposal_id))
+                    )
                 }
             }
         }
 
-        fn proposals(self: @ContractState, offset: u32, length: u32) -> Array<Proposal> {
+        fn proposals(self: @ContractState, offset: u32, length: u32) -> Array<ProposalWithArgs> {
             let mut result = ArrayTrait::new();
             let indices = self.proxy_contract.proposal_indices;
             let mut i = offset;
@@ -177,16 +182,76 @@ pub mod ProxyContract {
                     break;
                 }
                 let proposal_key = indices.at(i.try_into().unwrap()).read();
-                result.append(self.proxy_contract.proposals.read(proposal_key));
+                let proposal = self.proxy_contract.proposals.read(proposal_key);
+                
+                // Convert ProposalAction to ProposalActionWithArgs
+                let action_with_args = match proposal.actions {
+                    ProposalAction::ExternalFunctionCall((addr, selector, deposit)) => {
+                        let mut args = ArrayTrait::new();
+                        let stored_args = self.proposal_action_arguments.entry(proposal_key);
+                        let args_len = stored_args.len();
+                        let mut j = 0;
+                        loop {
+                            if j >= args_len {
+                                break;
+                            }
+                            args.append(stored_args.at(j).read());
+                            j += 1;
+                        };
+                        ProposalActionWithArgs::ExternalFunctionCall((addr, selector, deposit, args))
+                    },
+                    ProposalAction::Transfer((recipient, amount)) => 
+                        ProposalActionWithArgs::Transfer((recipient, amount)),
+                    ProposalAction::SetNumApprovals(v) => 
+                        ProposalActionWithArgs::SetNumApprovals(v),
+                    ProposalAction::SetActiveProposalsLimit(v) => 
+                        ProposalActionWithArgs::SetActiveProposalsLimit(v),
+                    ProposalAction::SetContextValue(storage_key) => {
+                        let mut key = ArrayTrait::new();
+                        let mut value = ArrayTrait::new();
+                        let stored_args = self.proposal_action_arguments.entry(proposal_key);
+                        
+                        // Read lengths
+                        let key_len: u64 = stored_args.at(0).read().try_into().unwrap();
+                        let value_len: u64 = stored_args.at(1).read().try_into().unwrap();
+                        
+                        // Read key data
+                        let mut j: u64 = 2;
+                        loop {
+                            if j >= key_len + 2 {
+                                break;
+                            }
+                            key.append(stored_args.at(j).read());
+                            j += 1;
+                        };
+                        
+                        // Read value data
+                        loop {
+                            if j >= key_len + value_len + 2 {
+                                break;
+                            }
+                            value.append(stored_args.at(j).read());
+                            j += 1;
+                        };
+                        
+                        ProposalActionWithArgs::SetContextValue((key, value))
+                    },
+                };
+                
+                result.append(ProposalWithArgs {
+                    proposal_id: proposal.proposal_id,
+                    author_id: proposal.author_id,
+                    actions: action_with_args,
+                });
                 i += 1;
             };
             result
         }
 
-        fn proposal(self: @ContractState, proposal_id: ProposalId) -> Option<Proposal> {
+        fn proposal(self: @ContractState, proposal_id: ProposalId) -> Option<ProposalWithArgs> {
             let proposal_key = self.create_proposal_key(@proposal_id);
             
-            // Check if proposal_key exists in indices first
+            // Check if proposal exists
             let indices = self.proxy_contract.proposal_indices;
             let mut exists = false;
             let mut i = 0;
@@ -202,7 +267,67 @@ pub mod ProxyContract {
             };
             
             if exists {
-                Option::Some(self.proxy_contract.proposals.read(proposal_key))
+                let proposal = self.proxy_contract.proposals.read(proposal_key);
+                
+                // Convert ProposalAction to ProposalActionWithArgs
+                let action_with_args = match proposal.actions {
+                    ProposalAction::ExternalFunctionCall((addr, selector, deposit)) => {
+                        let mut args = ArrayTrait::new();
+                        let stored_args = self.proposal_action_arguments.entry(proposal_key);
+                        let args_len = stored_args.len();
+                        let mut j = 0;
+                        loop {
+                            if j >= args_len {
+                                break;
+                            }
+                            args.append(stored_args.at(j).read());
+                            j += 1;
+                        };
+                        ProposalActionWithArgs::ExternalFunctionCall((addr, selector, deposit, args))
+                    },
+                    ProposalAction::Transfer((recipient, amount)) => 
+                        ProposalActionWithArgs::Transfer((recipient, amount)),
+                    ProposalAction::SetNumApprovals(v) => 
+                        ProposalActionWithArgs::SetNumApprovals(v),
+                    ProposalAction::SetActiveProposalsLimit(v) => 
+                        ProposalActionWithArgs::SetActiveProposalsLimit(v),
+                    ProposalAction::SetContextValue(storage_key) => {
+                        let mut key = ArrayTrait::new();
+                        let mut value = ArrayTrait::new();
+                        let stored_args = self.proposal_action_arguments.entry(proposal_key);
+                        
+                        // Read lengths
+                        let key_len: u64 = stored_args.at(0).read().try_into().unwrap();
+                        let value_len: u64 = stored_args.at(1).read().try_into().unwrap();
+                        
+                        // Read key data
+                        let mut j: u64 = 2;
+                        loop {
+                            if j >= key_len + 2 {
+                                break;
+                            }
+                            key.append(stored_args.at(j).read());
+                            j += 1;
+                        };
+                        
+                        // Read value data
+                        loop {
+                            if j >= key_len + value_len + 2 {
+                                break;
+                            }
+                            value.append(stored_args.at(j).read());
+                            j += 1;
+                        };
+                        
+                        ProposalActionWithArgs::SetContextValue((key, value))
+                    },
+                };
+                
+                Option::Some(ProposalWithArgs {
+                    proposal_id: proposal.proposal_id,
+                    author_id: proposal.author_id,
+                    actions: action_with_args,
+                })
             } else {
                 Option::None
             }
@@ -419,6 +544,7 @@ pub mod ProxyContract {
             let identity = match action.clone() {
                 MemberAction::Approve((identity, _)) => identity,
                 MemberAction::Create((proposal, _)) => proposal.author_id,
+                MemberAction::Delete((identity, _)) => identity,
             };
             let context_config_dispatcher = IContextConfigDispatcher { contract_address: self.proxy_contract.context_config_account_id.read() };
             let is_member = context_config_dispatcher.has_member(self.proxy_contract.context_id.read(), identity);
@@ -432,6 +558,28 @@ pub mod ProxyContract {
                 },
                 MemberAction::Create((proposal, num_proposals)) => 
                     self.internal_create_proposal(proposal, num_proposals),
+                MemberAction::Delete((identity, proposal_id)) => 
+                    self.internal_delete_proposal(proposal_id, identity),
+            }
+        }
+
+        fn internal_delete_proposal(
+            ref self: ContractState,
+            proposal_id: ProposalId,
+            owner: ContextIdentity
+        ) -> ProposalWithApprovals {
+            let proposal_key = self.create_proposal_key(@proposal_id);
+            let proposal = self.proxy_contract.proposals.entry(proposal_key).read();
+            
+            // Check if proposal exists and caller is the author
+            assert(proposal.author_id == owner, 'Not proposal owner');
+            
+            // Remove the proposal using existing function
+            self.remove_request(proposal_id.clone());
+            
+            ProposalWithApprovals {
+                proposal_id,
+                num_approvals: 0,
             }
         }
 
@@ -553,7 +701,7 @@ pub mod ProxyContract {
             let proposal_key = self.create_proposal_key(@proposal_id);
             
             match proposal.actions {
-                ProposalAction::ExternalFunctionCall((contract_address, selector)) => {
+                ProposalAction::ExternalFunctionCall((contract_address, selector, deposit)) => {
                     // Get the arguments for this call from storage using proposal_key
                     let mut calldata = ArrayTrait::new();
                     let call_args = self.proposal_action_arguments.entry(proposal_key);
@@ -562,6 +710,16 @@ pub mod ProxyContract {
                         calldata.append(call_args.at(i).read());
                     };
                     
+                    // If deposit is non-zero, approve the spending first
+                    if deposit != 0 {
+                        let token_address = self.proxy_contract.native_token_address.read();
+                        let erc20_dispatcher = IERC20Dispatcher { contract_address: token_address };
+                        
+                        // First approve the target contract to spend our tokens
+                        let success = erc20_dispatcher.approve(contract_address, deposit);
+                        assert(success, 'Token approval failed');
+                    }
+
                     // Execute the cross-contract call
                     let syscall_result = syscalls::call_contract_syscall(
                         contract_address,  // target contract address
@@ -569,16 +727,21 @@ pub mod ProxyContract {
                         calldata.span()   // arguments as span
                     );
 
-                    // Execute the cross-contract call
+                    // Reset the approval to 0 after the call
+                    if deposit != 0 {
+                        let token_address = self.proxy_contract.native_token_address.read();
+                        let erc20_dispatcher = IERC20Dispatcher { contract_address: token_address };
+                        let success = erc20_dispatcher.approve(contract_address, 0);
+                        assert(success, 'Reset approval failed');
+                    }
+
                     match syscall_result {
                         Result::Ok(retdata) => {
-                            // Call successful, can handle response if needed
                             self.emit(ExternalCallSuccess {
                                 message: format!("External call successful with return data: {:?}", retdata)
                             });
                         },
                         Result::Err(revert_reason) => {
-                            // Just pass through the original error array
                             panic(revert_reason);
                         }
                     }
