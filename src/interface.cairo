@@ -1,18 +1,16 @@
 use super::types::{
     Signed,
     ProposalId,
-    Proposal,
     ContextIdentity,
     ProposalWithArgs,
     ProposalWithApprovals
 };
-use starknet::ContractAddress;
 use starknet::ClassHash;
 
 #[starknet::interface]
 pub trait IProxyContract<TContractState> {
-    fn mutate(ref self: TContractState, request: Signed) -> ProposalWithApprovals;
-    fn get_confirmations_count(ref self: TContractState, proposal_id: ProposalId) -> ProposalWithApprovals;
+    fn mutate(ref self: TContractState, request: Signed) -> Option<ProposalWithApprovals>;
+    fn get_confirmations_count(ref self: TContractState, proposal_id: ProposalId) -> Option<ProposalWithApprovals>;
     fn proposal_approvers(ref self: TContractState, proposal_id: ProposalId) -> Array<ContextIdentity>;
     fn upgrade_contract(ref self: TContractState, class_hash: ClassHash);
     fn get_context_value(self: @TContractState, key: Array<felt252>) -> Option<Array<felt252>>;

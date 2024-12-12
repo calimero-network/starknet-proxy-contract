@@ -25,8 +25,7 @@ pub struct ProposalWithApprovals {
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
 pub enum MemberAction {
     Approve: (ContextIdentity, ProposalId),
-    Create: (ProposalWithArgs, u32),
-    Delete: (ContextIdentity, ProposalId),
+    Create: ProposalWithArgs,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +56,8 @@ pub enum ProposalAction {
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
     SetContextValue: felt252,
+    DeleteProposal: ProposalId,
+    Deleted: (),
 }
 
 #[derive(Drop, Serde)]
@@ -69,7 +70,6 @@ pub struct ProxyMutateRequestWrapper {
 pub enum ProxyMutateRequest {
     Propose: ProposalWithArgs,
     Approve: ConfirmationRequestWithSigner,
-    DeleteProposal: ProposalId,
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug, starknet::Store)]
@@ -87,6 +87,8 @@ pub enum ProposalActionWithArgs {
     SetNumApprovals: u32,
     SetActiveProposalsLimit: u32,
     SetContextValue: (Array<felt252>, Array<felt252>),
+    DeleteProposal: ProposalId,
+    Deleted: (),
 }
 
 #[derive(Drop, Clone, Serde, PartialEq, Debug)]
@@ -122,4 +124,20 @@ pub struct SetContextValueSuccess {
 pub struct ProposalCreated {
     pub proposal_id: ProposalId,
     pub num_approvals: u32,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct ProposalApproved {
+    pub proposal_id: ProposalId,
+    pub approver: ContextIdentity,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct ProposalExecuted {
+    pub proposal_id: ProposalId,
+}
+
+#[derive(Drop, starknet::Event)]
+pub struct ProposalUpdated {
+    pub proposal: ProposalWithApprovals,
 }

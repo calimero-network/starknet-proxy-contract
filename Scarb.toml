@@ -9,6 +9,7 @@ edition = "2023_11"
 starknet = "2.8.4"
 openzeppelin = "0.18.0"
 context_config = { path = "../snforge_contract" }
+mock_external = { path = "../mock_external" }
 
 [dev-dependencies]
 snforge_std = { git = "https://github.com/foundry-rs/starknet-foundry", tag = "v0.31.0" }
@@ -16,6 +17,8 @@ assert_macros = "2.8.4"
 
 [[target.starknet-contract]]
 sierra = true
+allowed-libfuncs-list.name = "experimental"
+build-external-contracts = ["context_config::ContextConfig", "mock_external::MockExternal"]
 
 [scripts]
 test = "snforge test"
